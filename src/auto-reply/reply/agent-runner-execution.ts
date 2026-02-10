@@ -197,18 +197,12 @@ export async function runAgentTurnWithFallback(params: {
       };
       const blockReplyPipeline = params.blockReplyPipeline;
       const onToolResult = params.opts?.onToolResult;
-      defaultRuntime.error(
-        `[routing] 7 runWithModelFallback input: provider=${params.followupRun.run.provider} model=${params.followupRun.run.model}`,
-      );
       const fallbackResult = await runWithModelFallback({
         ...resolveModelFallbackOptions(params.followupRun.run),
         runId,
         run: (provider, model, runOptions) => {
           // Notify that model selection is complete (including after fallback).
           // This allows responsePrefix template interpolation with the actual model.
-          defaultRuntime.error(
-            `[routing] 8 fallback callback: provider=${provider} model=${model} isCliProvider=${isCliProvider(provider, params.followupRun.run.config)}`,
-          );
           params.opts?.onModelSelected?.({
             provider,
             model,

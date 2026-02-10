@@ -4,6 +4,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { loadModelCatalog } from "../../agents/model-catalog.js";
 import {
   buildAllowedModelSet,
+  isCliProvider,
   type ModelAliasIndex,
   modelKey,
   normalizeProviderId,
@@ -292,7 +293,6 @@ export async function createModelSelectionState(params: {
 
   let provider = params.provider;
   let model = params.model;
-  console.error(`[routing] 4a modelSelection entry: provider=${provider} model=${model}`);
 
   const hasAllowlist = agentCfg?.models && Object.keys(agentCfg.models).length > 0;
   const initialStoredOverride = resolveStoredModelOverride({
@@ -302,9 +302,6 @@ export async function createModelSelectionState(params: {
     parentSessionKey,
   });
   const hasStoredOverride = Boolean(initialStoredOverride);
-  console.error(
-    `[routing] 4b storedOverride: provider=${initialStoredOverride?.provider} model=${initialStoredOverride?.model} hasStoredOverride=${hasStoredOverride}`,
-  );
   const needsModelCatalog = params.hasModelDirective || hasAllowlist || hasStoredOverride;
 
   let allowedModelKeys = new Set<string>();
@@ -359,13 +356,31 @@ export async function createModelSelectionState(params: {
   const skipStoredOverride = params.hasResolvedHeartbeatModelOverride === true;
   if (storedOverride?.model && !skipStoredOverride) {
     const candidateProvider = storedOverride.provider || defaultProvider;
-    const key = modelKey(candidateProvider, storedOverride.model);
-    if (allowedModelKeys.size === 0 || allowedModelKeys.has(key)) {
-      provider = candidateProvider;
-      model = storedOverride.model;
+
+    // If the config's provider type (cli vs embedded) differs from the stored
+    // override, the override is stale from a previous config — invalidate it.
+    const configIsCli = isCliProvider(defaultProvider, cfg);
+    const storedIsCli = isCliProvider(candidateProvider, cfg);
+    if (configIsCli !== storedIsCli && sessionEntry && sessionStore && sessionKey) {
+      applyModelOverrideToSessionEntry({
+        entry: sessionEntry,
+        selection: { provider: defaultProvider, model: defaultModel, isDefault: true },
+      });
+      sessionStore[sessionKey] = sessionEntry;
+      if (storePath) {
+        await updateSessionStore(storePath, (store) => {
+          store[sessionKey] = sessionEntry;
+        });
+      }
+      resetModelOverride = true;
+    } else {
+      const key = modelKey(candidateProvider, storedOverride.model);
+      if (allowedModelKeys.size === 0 || allowedModelKeys.has(key)) {
+        provider = candidateProvider;
+        model = storedOverride.model;
+      }
     }
   }
-  console.error(`[routing] 4c afterStoredOverride: provider=${provider} model=${model}`);
 
   if (sessionEntry && sessionStore && sessionKey && sessionEntry.authProfileOverride) {
     const { ensureAuthProfileStore } = await import("../../agents/auth-profiles.js");
