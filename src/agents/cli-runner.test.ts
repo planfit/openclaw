@@ -9,10 +9,15 @@ import { cleanupSuspendedCliProcesses } from "./cli-runner/helpers.js";
 
 const runCommandWithTimeoutMock = vi.fn();
 const runExecMock = vi.fn();
+const runSDKAgentMock = vi.fn();
 
 vi.mock("../process/exec.js", () => ({
   runCommandWithTimeout: (...args: unknown[]) => runCommandWithTimeoutMock(...args),
   runExec: (...args: unknown[]) => runExecMock(...args),
+}));
+
+vi.mock("./claude-sdk-integration.js", () => ({
+  runSDKAgent: (...args: unknown[]) => runSDKAgentMock(...args),
 }));
 
 describe("runCliAgent resume cleanup", () => {
@@ -140,6 +145,132 @@ describe("runCliAgent resume cleanup", () => {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
     expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("runCliAgent SDK path (claude-cli)", () => {
+  beforeEach(() => {
+    runCommandWithTimeoutMock.mockReset();
+    runExecMock.mockReset();
+    runSDKAgentMock.mockReset();
+  });
+
+  it("uses runSDKAgent for claude-cli provider", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "SDK response",
+      sessionId: "sdk-sess-1",
+      durationMs: 3000,
+      numTurns: 5,
+      totalCostUsd: 0.1,
+      usage: {
+        input: 100,
+        output: 200,
+        cacheRead: 50,
+        cacheWrite: 10,
+      },
+    });
+
+    const result = await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hello",
+      provider: "claude-cli",
+      model: "opus",
+      timeoutMs: 60_000,
+      runId: "run-sdk-1",
+    });
+
+    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
+    expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
+
+    expect(result.payloads?.[0]?.text).toBe("SDK response");
+    expect(result.meta.agentMeta?.sessionId).toBe("sdk-sess-1");
+    expect(result.meta.agentMeta?.provider).toBe("claude-cli");
+    expect(result.meta.agentMeta?.model).toBe("opus");
+    expect(result.meta.agentMeta?.usage).toEqual({
+      input: 100,
+      output: 200,
+      cacheRead: 50,
+      cacheWrite: 10,
+    });
+  });
+
+  it("passes extraSystemPrompt to SDK without 'Tools are disabled' message", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "ok",
+      sessionId: "s",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hello",
+      provider: "claude-cli",
+      model: "opus",
+      timeoutMs: 60_000,
+      runId: "run-sdk-2",
+      extraSystemPrompt: "Be concise.",
+    });
+
+    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(sdkParams.systemPromptAppend).toBe("Be concise.");
+  });
+
+  it("maps session ID for resume correctly", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "resumed",
+      sessionId: "existing-session",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "continue",
+      provider: "claude-cli",
+      model: "opus",
+      timeoutMs: 60_000,
+      runId: "run-sdk-3",
+      cliSessionId: "existing-session",
+    });
+
+    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    // claude-cli backend has resumeArgs configured, so useResume should be true
+    // and resume param should be passed
+    expect(sdkParams.resume ?? sdkParams.sessionId).toBe("existing-session");
+  });
+
+  it("still uses subprocess for non-claude-cli providers", async () => {
+    runExecMock.mockResolvedValue({ stdout: "", stderr: "" });
+    runCommandWithTimeoutMock.mockResolvedValueOnce({
+      stdout: "subprocess response",
+      stderr: "",
+      code: 0,
+      signal: null,
+      killed: false,
+    });
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hello",
+      provider: "codex-cli",
+      model: "gpt-5.2-codex",
+      timeoutMs: 1_000,
+      runId: "run-subprocess",
+    });
+
+    expect(runSDKAgentMock).not.toHaveBeenCalled();
+    expect(runCommandWithTimeoutMock).toHaveBeenCalledTimes(1);
   });
 });
 

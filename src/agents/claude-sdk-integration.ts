@@ -7,224 +7,172 @@
  * @see https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk
  */
 
-import { query, type ClaudeAgentOptions, type Message } from "@anthropic-ai/claude-agent-sdk";
+import {
+  query,
+  type Options,
+  type SDKResultError,
+  type SDKAssistantMessageError,
+} from "@anthropic-ai/claude-agent-sdk";
+import type { FailoverReason } from "./pi-embedded-helpers/types.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+import { FailoverError, resolveFailoverStatus } from "./failover-error.js";
+import { classifyFailoverReason, isFailoverErrorMessage } from "./pi-embedded-helpers.js";
 
-export interface ClaudeSDKExecuteOptions {
+const log = createSubsystemLogger("agent/claude-sdk");
+
+export interface SDKAgentParams {
   prompt: string;
   cwd: string;
-  model?: "sonnet" | "opus" | "haiku";
+  model?: string;
+  systemPromptAppend?: string;
   maxTurns?: number;
-  permissionMode?: "default" | "bypassPermissions" | "plan";
-  systemPrompt?: string;
-  onProgress?: (message: Message) => void;
-  onToolCall?: (toolName: string, input: unknown) => void;
-  signal?: AbortSignal;
+  sessionId?: string;
+  resume?: string;
+  env?: Record<string, string | undefined>;
 }
 
-export interface ClaudeSDKResult {
-  success: boolean;
-  result?: string;
-  error?: string;
-  totalCostUsd?: number;
-  turnCount?: number;
+export interface SDKAgentResult {
+  text: string;
+  sessionId: string;
+  durationMs: number;
+  numTurns: number;
+  totalCostUsd: number;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  };
 }
 
-/**
- * Claude Agent SDK를 사용하여 Claude Code 실행
- *
- * 기존 subprocess 방식과 달리:
- * - 타임아웃이 필요 없음 (이벤트 기반)
- * - maxTurns로 대화 턴 제한 가능
- * - 타입 안전한 결과 반환
- *
- * @example
- * ```typescript
- * const result = await executeWithClaudeSDK({
- *   prompt: "Fix the login bug in src/auth.ts",
- *   cwd: "/path/to/project",
- *   maxTurns: 100,
- *   onProgress: (msg) => console.log("Progress:", msg.type),
- * });
- *
- * if (result.success) {
- *   console.log("Completed:", result.result);
- * }
- * ```
- */
-export async function executeWithClaudeSDK(
-  options: ClaudeSDKExecuteOptions,
-): Promise<ClaudeSDKResult> {
-  const {
-    prompt,
-    cwd,
-    model = "sonnet",
-    maxTurns = 250,
-    permissionMode = "bypassPermissions",
+const DEFAULT_MAX_TURNS = 250;
+
+export function classifySDKAssistantError(
+  errorType: SDKAssistantMessageError,
+): FailoverReason | null {
+  switch (errorType) {
+    case "authentication_failed":
+      return "auth";
+    case "billing_error":
+      return "billing";
+    case "rate_limit":
+      return "rate_limit";
+    case "invalid_request":
+      return "format";
+    case "server_error":
+      return "unknown";
+    case "max_output_tokens":
+      return null;
+    case "unknown":
+      return "unknown";
+    default:
+      return null;
+  }
+}
+
+export function classifySDKResultError(subtype: SDKResultError["subtype"]): FailoverReason {
+  switch (subtype) {
+    case "error_max_turns":
+      return "timeout";
+    case "error_max_budget_usd":
+      return "billing";
+    case "error_max_structured_output_retries":
+      return "format";
+    case "error_during_execution":
+      return "unknown";
+    default:
+      return "unknown";
+  }
+}
+
+export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResult> {
+  const systemPrompt: Options["systemPrompt"] = params.systemPromptAppend
+    ? { type: "preset" as const, preset: "claude_code" as const, append: params.systemPromptAppend }
+    : { type: "preset" as const, preset: "claude_code" as const };
+
+  const options: Options = {
+    cwd: params.cwd,
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    maxTurns: params.maxTurns ?? DEFAULT_MAX_TURNS,
     systemPrompt,
-    onProgress,
-    onToolCall,
-    signal,
-  } = options;
-
-  const sdkOptions: ClaudeAgentOptions = {
-    cwd,
-    model,
-    maxTurns,
-    permissionMode,
-    ...(systemPrompt && { systemPrompt }),
+    ...(params.model && { model: params.model }),
+    ...(params.env && { env: params.env }),
+    ...(params.resume
+      ? { resume: params.resume }
+      : params.sessionId
+        ? { sessionId: params.sessionId }
+        : {}),
   };
 
-  let turnCount = 0;
+  log.info(
+    `sdk exec: model=${params.model ?? "default"} promptChars=${params.prompt.length} maxTurns=${options.maxTurns}`,
+  );
 
   try {
-    for await (const message of query({ prompt, options: sdkOptions })) {
-      // AbortSignal 체크
-      if (signal?.aborted) {
-        return {
-          success: false,
-          error: "Aborted by user",
-          turnCount,
-        };
-      }
+    for await (const msg of query({ prompt: params.prompt, options })) {
+      if (msg.type === "assistant") {
+        if (msg.error) {
+          log.warn(`sdk assistant error: ${msg.error}`);
 
-      // 진행 상황 콜백
-      if (onProgress) {
-        onProgress(message);
-      }
-
-      // 메시지 타입별 처리
-      switch (message.type) {
-        case "assistant":
-          turnCount++;
-          // 도구 호출 감지
-          if (onToolCall && message.content) {
-            for (const block of message.content) {
-              if (block.type === "tool_use") {
-                onToolCall(block.name, block.input);
-              }
-            }
+          const reason = classifySDKAssistantError(msg.error);
+          if (reason) {
+            const status = resolveFailoverStatus(reason);
+            throw new FailoverError(`SDK assistant error: ${msg.error}`, {
+              reason,
+              status,
+            });
           }
-          break;
+        }
+      }
 
-        case "result":
+      if (msg.type === "result") {
+        if (msg.subtype === "success") {
           return {
-            success: message.subtype === "success",
-            result: message.result,
-            error: message.subtype === "error" ? message.error : undefined,
-            totalCostUsd: message.total_cost_usd,
-            turnCount,
+            text: msg.result,
+            sessionId: msg.session_id,
+            durationMs: msg.duration_ms,
+            numTurns: msg.num_turns,
+            totalCostUsd: msg.total_cost_usd,
+            usage: {
+              input: msg.usage.input_tokens,
+              output: msg.usage.output_tokens,
+              cacheRead: msg.usage.cache_read_input_tokens,
+              cacheWrite: msg.usage.cache_creation_input_tokens,
+            },
           };
+        }
+
+        const reason = classifySDKResultError(msg.subtype);
+        const status = resolveFailoverStatus(reason);
+        const errorMessages = msg.errors?.length ? msg.errors.join("; ") : msg.subtype;
+        throw new FailoverError(`SDK result error: ${errorMessages}`, {
+          reason,
+          status,
+        });
       }
     }
 
-    // 정상적으로 종료되지 않은 경우
-    return {
-      success: false,
-      error: "Unexpected end of stream",
-      turnCount,
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-      turnCount,
-    };
-  }
-}
-
-/**
- * 스트리밍 방식으로 Claude Code 실행
- *
- * async generator를 반환하여 실시간으로 메시지를 처리할 수 있습니다.
- *
- * @example
- * ```typescript
- * for await (const event of streamClaudeSDK({
- *   prompt: "Explain this codebase",
- *   cwd: "/path/to/project",
- * })) {
- *   if (event.type === "progress") {
- *     console.log("Working...");
- *   } else if (event.type === "text") {
- *     process.stdout.write(event.text);
- *   } else if (event.type === "complete") {
- *     console.log("Done! Cost:", event.costUsd);
- *   }
- * }
- * ```
- */
-export async function* streamClaudeSDK(
-  options: Omit<ClaudeSDKExecuteOptions, "onProgress" | "onToolCall">,
-): AsyncGenerator<StreamEvent> {
-  const {
-    prompt,
-    cwd,
-    model = "sonnet",
-    maxTurns = 250,
-    permissionMode = "bypassPermissions",
-    systemPrompt,
-    signal,
-  } = options;
-
-  const sdkOptions: ClaudeAgentOptions = {
-    cwd,
-    model,
-    maxTurns,
-    permissionMode,
-    ...(systemPrompt && { systemPrompt }),
-  };
-
-  try {
-    for await (const message of query({ prompt, options: sdkOptions })) {
-      if (signal?.aborted) {
-        yield { type: "error", error: "Aborted by user" };
-        return;
-      }
-
-      switch (message.type) {
-        case "assistant":
-          yield { type: "progress", messageType: "assistant" };
-
-          // 텍스트 추출
-          if (message.content) {
-            for (const block of message.content) {
-              if (block.type === "text") {
-                yield { type: "text", text: block.text };
-              } else if (block.type === "tool_use") {
-                yield {
-                  type: "tool_call",
-                  toolName: block.name,
-                  input: block.input,
-                };
-              }
-            }
-          }
-          break;
-
-        case "result":
-          if (message.subtype === "success") {
-            yield {
-              type: "complete",
-              result: message.result,
-              costUsd: message.total_cost_usd,
-            };
-          } else {
-            yield { type: "error", error: message.error };
-          }
-          return;
-      }
+    // Stream ended without a result message
+    throw new FailoverError("SDK stream ended unexpectedly without a result", {
+      reason: "unknown",
+    });
+  } catch (err) {
+    if (err instanceof FailoverError) {
+      throw err;
     }
-  } catch (error) {
-    yield {
-      type: "error",
-      error: error instanceof Error ? error.message : String(error),
-    };
+
+    const message = err instanceof Error ? err.message : String(err);
+
+    if (isFailoverErrorMessage(message)) {
+      const reason = classifyFailoverReason(message) ?? "unknown";
+      const status = resolveFailoverStatus(reason);
+      throw new FailoverError(message, { reason, status });
+    }
+
+    throw new FailoverError(`SDK execution failed: ${message}`, {
+      reason: "unknown",
+      cause: err instanceof Error ? err : undefined,
+    });
   }
 }
-
-export type StreamEvent =
-  | { type: "progress"; messageType: string }
-  | { type: "text"; text: string }
-  | { type: "tool_call"; toolName: string; input: unknown }
-  | { type: "complete"; result?: string; costUsd?: number }
-  | { type: "error"; error: string };
