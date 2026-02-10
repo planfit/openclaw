@@ -9,6 +9,7 @@ import { resolveCliNoOutputTimeoutMs } from "./cli-runner/helpers.js";
 const supervisorSpawnMock = vi.fn();
 const enqueueSystemEventMock = vi.fn();
 const requestHeartbeatNowMock = vi.fn();
+const runSDKAgentMock = vi.fn();
 
 vi.mock("../process/supervisor/index.js", () => ({
   getProcessSupervisor: () => ({
@@ -26,6 +27,10 @@ vi.mock("../infra/system-events.js", () => ({
 
 vi.mock("../infra/heartbeat-wake.js", () => ({
   requestHeartbeatNow: (...args: unknown[]) => requestHeartbeatNowMock(...args),
+}));
+
+vi.mock("./claude-sdk-integration.js", () => ({
+  runSDKAgent: (...args: unknown[]) => runSDKAgentMock(...args),
 }));
 
 type MockRunExit = {
@@ -61,6 +66,7 @@ describe("runCliAgent with process supervisor", () => {
     supervisorSpawnMock.mockClear();
     enqueueSystemEventMock.mockClear();
     requestHeartbeatNowMock.mockClear();
+    runSDKAgentMock.mockClear();
   });
 
   it("runs CLI through supervisor and returns payload", async () => {
@@ -293,6 +299,133 @@ describe("runCliAgent with process supervisor", () => {
 
     const input = supervisorSpawnMock.mock.calls[0]?.[0] as { cwd?: string };
     expect(input.cwd).toBe(path.resolve(fallbackWorkspace));
+  });
+});
+
+describe("runCliAgent SDK path (claude-cli)", () => {
+  beforeEach(() => {
+    runSDKAgentMock.mockReset();
+  });
+
+  it("uses runSDKAgent for claude-cli provider", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "SDK response",
+      sessionId: "sdk-sess-1",
+      durationMs: 3000,
+      numTurns: 5,
+      totalCostUsd: 0.1,
+      usage: {
+        input: 100,
+        output: 200,
+        cacheRead: 50,
+        cacheWrite: 10,
+      },
+    });
+
+    const result = await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hello",
+      provider: "claude-cli",
+      model: "opus",
+      timeoutMs: 60_000,
+      runId: "run-sdk-1",
+    });
+
+    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
+
+    expect(result.payloads?.[0]?.text).toBe("SDK response");
+    expect(result.meta.agentMeta?.sessionId).toBe("sdk-sess-1");
+    expect(result.meta.agentMeta?.provider).toBe("claude-cli");
+    expect(result.meta.agentMeta?.model).toBe("opus");
+    expect(result.meta.agentMeta?.usage).toEqual({
+      input: 100,
+      output: 200,
+      cacheRead: 50,
+      cacheWrite: 10,
+    });
+  });
+
+  it("passes extraSystemPrompt to SDK without 'Tools are disabled' message", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "ok",
+      sessionId: "s",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hello",
+      provider: "claude-cli",
+      model: "opus",
+      timeoutMs: 60_000,
+      runId: "run-sdk-2",
+      extraSystemPrompt: "Be concise.",
+    });
+
+    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(sdkParams.systemPromptAppend).toBe("Be concise.");
+  });
+
+  it("maps session ID for resume correctly", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "resumed",
+      sessionId: "existing-session",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "continue",
+      provider: "claude-cli",
+      model: "opus",
+      timeoutMs: 60_000,
+      runId: "run-sdk-3",
+      cliSessionId: "existing-session",
+    });
+
+    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    // claude-cli backend has resumeArgs configured, so useResume should be true
+    // and resume param should be passed
+    expect(sdkParams.resume ?? sdkParams.sessionId).toBe("existing-session");
+  });
+
+  it("still uses subprocess for non-claude-cli providers", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "subprocess response",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hello",
+      provider: "codex-cli",
+      model: "gpt-5.2-codex",
+      timeoutMs: 1_000,
+      runId: "run-subprocess",
+    });
+
+    expect(runSDKAgentMock).not.toHaveBeenCalled();
+    expect(supervisorSpawnMock).toHaveBeenCalledTimes(1);
   });
 });
 

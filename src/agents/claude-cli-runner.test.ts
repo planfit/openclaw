@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),
 }));
 
+const runSDKAgentMock = vi.fn();
+
 vi.mock("../process/supervisor/index.js", () => ({
   getProcessSupervisor: () => ({
     spawn: (...args: unknown[]) => mocks.spawn(...args),
@@ -13,6 +15,10 @@ vi.mock("../process/supervisor/index.js", () => ({
     reconcileOrphans: async () => {},
     getRecord: vi.fn(),
   }),
+}));
+
+vi.mock("./claude-sdk-integration.js", () => ({
+  runSDKAgent: (...args: unknown[]) => runSDKAgentMock(...args),
 }));
 
 function createDeferred<T>() {
@@ -29,40 +35,6 @@ function createDeferred<T>() {
   };
 }
 
-function createManagedRun(
-  exit: Promise<{
-    reason: "exit" | "overall-timeout" | "no-output-timeout" | "signal" | "manual-cancel";
-    exitCode: number | null;
-    exitSignal: NodeJS.Signals | null;
-    durationMs: number;
-    stdout: string;
-    stderr: string;
-    timedOut: boolean;
-    noOutputTimedOut: boolean;
-  }>,
-) {
-  return {
-    runId: "run-test",
-    pid: 12345,
-    startedAtMs: Date.now(),
-    wait: async () => await exit,
-    cancel: vi.fn(),
-  };
-}
-
-function successExit(payload: { message: string; session_id: string }) {
-  return {
-    reason: "exit" as const,
-    exitCode: 0,
-    exitSignal: null,
-    durationMs: 1,
-    stdout: JSON.stringify(payload),
-    stderr: "",
-    timedOut: false,
-    noOutputTimedOut: false,
-  };
-}
-
 async function waitForCalls(mockFn: { mock: { calls: unknown[][] } }, count: number) {
   await vi.waitFor(
     () => {
@@ -72,15 +44,24 @@ async function waitForCalls(mockFn: { mock: { calls: unknown[][] } }, count: num
   );
 }
 
+vi.mock("./claude-sdk-integration.js", () => ({
+  runSDKAgent: (...args: unknown[]) => runSDKAgentMock(...args),
+}));
+
 describe("runClaudeCliAgent", () => {
   beforeEach(() => {
     mocks.spawn.mockClear();
+    runSDKAgentMock.mockReset();
   });
 
-  it("starts a new session with --session-id when none is provided", async () => {
-    mocks.spawn.mockResolvedValueOnce(
-      createManagedRun(Promise.resolve(successExit({ message: "ok", session_id: "sid-1" }))),
-    );
+  it("starts a new session via SDK when none is provided", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "ok",
+      sessionId: "sid-1",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
 
     await runClaudeCliAgent({
       sessionId: "openclaw-session",
@@ -92,18 +73,21 @@ describe("runClaudeCliAgent", () => {
       runId: "run-1",
     });
 
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    const spawnInput = mocks.spawn.mock.calls[0]?.[0] as { argv: string[]; mode: string };
-    expect(spawnInput.mode).toBe("child");
-    expect(spawnInput.argv).toContain("claude");
-    expect(spawnInput.argv).toContain("--session-id");
-    expect(spawnInput.argv).toContain("hi");
+    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
+
+    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(sdkParams.prompt).toBe("hi");
+    expect(sdkParams.cwd).toBe("/tmp");
   });
 
-  it("uses --resume when a claude session id is provided", async () => {
-    mocks.spawn.mockResolvedValueOnce(
-      createManagedRun(Promise.resolve(successExit({ message: "ok", session_id: "sid-2" }))),
-    );
+  it("uses resume when a claude session id is provided", async () => {
+    runSDKAgentMock.mockResolvedValueOnce({
+      text: "ok",
+      sessionId: "c9d7b831-1c31-4d22-80b9-1e50ca207d4b",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
 
     await runClaudeCliAgent({
       sessionId: "openclaw-session",
@@ -116,21 +100,30 @@ describe("runClaudeCliAgent", () => {
       claudeSessionId: "c9d7b831-1c31-4d22-80b9-1e50ca207d4b",
     });
 
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
-    const spawnInput = mocks.spawn.mock.calls[0]?.[0] as { argv: string[] };
-    expect(spawnInput.argv).toContain("--resume");
-    expect(spawnInput.argv).toContain("c9d7b831-1c31-4d22-80b9-1e50ca207d4b");
-    expect(spawnInput.argv).not.toContain("--session-id");
-    expect(spawnInput.argv).toContain("hi");
+    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
+    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(sdkParams.resume).toBe("c9d7b831-1c31-4d22-80b9-1e50ca207d4b");
   });
 
   it("serializes concurrent claude-cli runs", async () => {
-    const firstDeferred = createDeferred<ReturnType<typeof successExit>>();
-    const secondDeferred = createDeferred<ReturnType<typeof successExit>>();
+    const firstDeferred = createDeferred<{
+      text: string;
+      sessionId: string;
+      durationMs: number;
+      numTurns: number;
+      totalCostUsd: number;
+    }>();
+    const secondDeferred = createDeferred<{
+      text: string;
+      sessionId: string;
+      durationMs: number;
+      numTurns: number;
+      totalCostUsd: number;
+    }>();
 
-    mocks.spawn
-      .mockResolvedValueOnce(createManagedRun(firstDeferred.promise))
-      .mockResolvedValueOnce(createManagedRun(secondDeferred.promise));
+    runSDKAgentMock
+      .mockImplementationOnce(() => firstDeferred.promise)
+      .mockImplementationOnce(() => secondDeferred.promise);
 
     const firstRun = runClaudeCliAgent({
       sessionId: "s1",
@@ -152,13 +145,25 @@ describe("runClaudeCliAgent", () => {
       runId: "run-2",
     });
 
-    await waitForCalls(mocks.spawn, 1);
+    await waitForCalls(runSDKAgentMock, 1);
 
-    firstDeferred.resolve(successExit({ message: "ok", session_id: "sid-1" }));
+    firstDeferred.resolve({
+      text: "ok",
+      sessionId: "sid-1",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
 
-    await waitForCalls(mocks.spawn, 2);
+    await waitForCalls(runSDKAgentMock, 2);
 
-    secondDeferred.resolve(successExit({ message: "ok", session_id: "sid-2" }));
+    secondDeferred.resolve({
+      text: "ok",
+      sessionId: "sid-2",
+      durationMs: 100,
+      numTurns: 1,
+      totalCostUsd: 0.01,
+    });
 
     await Promise.all([firstRun, secondRun]);
   });
