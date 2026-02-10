@@ -83,6 +83,9 @@ export async function getReplyFromConfig(
   let provider = defaultProvider;
   let model = defaultModel;
   let hasResolvedHeartbeatModelOverride = false;
+  defaultRuntime.error(
+    `[routing] 1 resolveDefaultModel: defaultProvider=${defaultProvider} defaultModel=${defaultModel}`,
+  );
   if (opts?.isHeartbeat) {
     // Prefer the resolved per-agent heartbeat model passed from the heartbeat runner,
     // fall back to the global defaults heartbeat model for backward compatibility.
@@ -99,6 +102,7 @@ export async function getReplyFromConfig(
       provider = heartbeatRef.ref.provider;
       model = heartbeatRef.ref.model;
       hasResolvedHeartbeatModelOverride = true;
+      defaultRuntime.error(`[routing] 2 heartbeat override: provider=${provider} model=${model}`);
     }
   }
 
@@ -279,6 +283,7 @@ export async function getReplyFromConfig(
   } = directiveResult.result;
   provider = resolvedProvider;
   model = resolvedModel;
+  defaultRuntime.error(`[routing] 6 post-directive final: provider=${provider} model=${model}`);
 
   const maybeEmitMissingResetHooks = async () => {
     if (!resetTriggered || !command.isAuthorizedSender || command.resetHookTriggered) {

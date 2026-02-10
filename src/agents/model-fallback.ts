@@ -269,6 +269,9 @@ function resolveFallbackCandidates(params: {
   const modelRaw = String(params.model ?? "").trim() || defaultModel;
   const normalizedPrimary = normalizeModelRef(providerRaw, modelRaw);
   const configuredPrimary = normalizeModelRef(defaultProvider, defaultModel);
+  console.error(
+    `[routing] 9 fallbackCandidates: input=${params.provider}/${params.model} resolved=${providerRaw}/${modelRaw} primary=${primary?.provider}/${primary?.model}`,
+  );
   const aliasIndex = buildModelAliasIndex({
     cfg: params.cfg ?? {},
     defaultProvider,
