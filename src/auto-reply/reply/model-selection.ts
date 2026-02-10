@@ -286,6 +286,7 @@ export async function createModelSelectionState(params: {
 
   let provider = params.provider;
   let model = params.model;
+  console.error(`[routing] 4a modelSelection entry: provider=${provider} model=${model}`);
 
   const hasAllowlist = agentCfg?.models && Object.keys(agentCfg.models).length > 0;
   const initialStoredOverride = resolveStoredModelOverride({
@@ -295,6 +296,9 @@ export async function createModelSelectionState(params: {
     parentSessionKey,
   });
   const hasStoredOverride = Boolean(initialStoredOverride);
+  console.error(
+    `[routing] 4b storedOverride: provider=${initialStoredOverride?.provider} model=${initialStoredOverride?.model} hasStoredOverride=${hasStoredOverride}`,
+  );
   const needsModelCatalog = params.hasModelDirective || hasAllowlist || hasStoredOverride;
 
   let allowedModelKeys = new Set<string>();
@@ -351,6 +355,7 @@ export async function createModelSelectionState(params: {
       model = storedOverride.model;
     }
   }
+  console.error(`[routing] 4c afterStoredOverride: provider=${provider} model=${model}`);
 
   if (sessionEntry && sessionStore && sessionKey && sessionEntry.authProfileOverride) {
     const { ensureAuthProfileStore } = await import("../../agents/auth-profiles.js");

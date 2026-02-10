@@ -137,6 +137,7 @@ export async function resolveReplyDirectives(params: {
   } = params;
   let provider = initialProvider;
   let model = initialModel;
+  console.error(`[routing] 3 directive entry: initialProvider=${provider} initialModel=${model}`);
 
   // Prefer CommandBody/RawBody (clean message without structural context) for directive parsing.
   // Keep `Body`/`BodyStripped` as the best-available prompt text (may include context).
@@ -394,6 +395,9 @@ export async function resolveReplyDirectives(params: {
   });
   provider = modelState.provider;
   model = modelState.model;
+  console.error(
+    `[routing] 4 modelState: provider=${modelState.provider} model=${modelState.model}`,
+  );
 
   let contextTokens = resolveContextTokens({
     agentCfg,
@@ -449,6 +453,9 @@ export async function resolveReplyDirectives(params: {
   directives = applyResult.directives;
   provider = applyResult.provider;
   model = applyResult.model;
+  console.error(
+    `[routing] 5 applyResult: provider=${applyResult.provider} model=${applyResult.model}`,
+  );
   contextTokens = applyResult.contextTokens;
   const { directiveAck, perMessageQueueMode, perMessageQueueOptions } = applyResult;
   const execOverrides = resolveExecOverrides({ directives, sessionEntry });
