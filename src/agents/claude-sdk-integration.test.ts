@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FailoverError } from "./failover-error.js";
 
-const queryMock = vi.fn();
+const { queryMock, logMock } = vi.hoisted(() => {
+  const mock = { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn(), child: vi.fn() };
+  mock.child.mockReturnValue(mock);
+  return { queryMock: vi.fn(), logMock: mock };
+});
+
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: (...args: unknown[]) => queryMock(...args),
+}));
+
+vi.mock("../logging/subsystem.js", () => ({
+  createSubsystemLogger: () => logMock,
 }));
 
 import {
@@ -71,6 +80,9 @@ describe("classifySDKResultError", () => {
 describe("runSDKAgent", () => {
   beforeEach(() => {
     queryMock.mockReset();
+    logMock.info.mockReset();
+    logMock.debug.mockReset();
+    logMock.warn.mockReset();
   });
 
   it("returns SDKAgentResult on success", async () => {
@@ -494,5 +506,156 @@ describe("runSDKAgent", () => {
       expect(err).toBeInstanceOf(FailoverError);
       expect((err as FailoverError).message).toContain("Connection refused");
     }
+  });
+
+  it("logs init event with model, tools, and mcp server status", async () => {
+    queryMock.mockReturnValueOnce(
+      makeAsyncIterable([
+        {
+          type: "system",
+          subtype: "init",
+          model: "claude-opus-4-6",
+          tools: ["Bash", "Read", "Edit"],
+          mcp_servers: [
+            { name: "tavily", status: "connected" },
+            { name: "serena", status: "failed" },
+          ],
+          permissionMode: "bypassPermissions",
+          slash_commands: [],
+          output_style: "concise",
+          skills: [],
+          plugins: [],
+          agents: [],
+          apiKeySource: "user",
+          claude_code_version: "1.0.0",
+          cwd: "/tmp",
+          uuid: "u",
+          session_id: "s",
+        },
+        {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          session_id: "s",
+          duration_ms: 100,
+          duration_api_ms: 80,
+          is_error: false,
+          num_turns: 1,
+          total_cost_usd: 0.01,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+          modelUsage: {},
+          permission_denials: [],
+          uuid: "u2",
+        },
+      ]),
+    );
+
+    await runSDKAgent({ prompt: "test", cwd: "/tmp" });
+
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "sdk init: model=claude-opus-4-6 tools=3 mcp=tavily:connected,serena:failed",
+      ),
+    );
+  });
+
+  it("logs tool_progress events", async () => {
+    queryMock.mockReturnValueOnce(
+      makeAsyncIterable([
+        {
+          type: "tool_progress",
+          tool_use_id: "tu-1",
+          tool_name: "Bash",
+          parent_tool_use_id: null,
+          elapsed_time_seconds: 5,
+          uuid: "u",
+          session_id: "s",
+        },
+        {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          session_id: "s",
+          duration_ms: 6000,
+          duration_api_ms: 5500,
+          is_error: false,
+          num_turns: 1,
+          total_cost_usd: 0.01,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+          modelUsage: {},
+          permission_denials: [],
+          uuid: "u2",
+        },
+      ]),
+    );
+
+    await runSDKAgent({ prompt: "test", cwd: "/tmp" });
+
+    expect(logMock.debug).toHaveBeenCalledWith("sdk tool: Bash (5s)");
+  });
+
+  it("logs hook started and response events", async () => {
+    queryMock.mockReturnValueOnce(
+      makeAsyncIterable([
+        {
+          type: "system",
+          subtype: "hook_started",
+          hook_id: "h1",
+          hook_name: "pre-bash",
+          hook_event: "PreToolUse",
+          uuid: "u",
+          session_id: "s",
+        },
+        {
+          type: "system",
+          subtype: "hook_response",
+          hook_id: "h1",
+          hook_name: "pre-bash",
+          hook_event: "PreToolUse",
+          output: "",
+          stdout: "",
+          stderr: "",
+          exit_code: 0,
+          outcome: "success",
+          uuid: "u2",
+          session_id: "s",
+        },
+        {
+          type: "result",
+          subtype: "success",
+          result: "ok",
+          session_id: "s",
+          duration_ms: 100,
+          duration_api_ms: 80,
+          is_error: false,
+          num_turns: 1,
+          total_cost_usd: 0.01,
+          usage: {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+          modelUsage: {},
+          permission_denials: [],
+          uuid: "u3",
+        },
+      ]),
+    );
+
+    await runSDKAgent({ prompt: "test", cwd: "/tmp" });
+
+    expect(logMock.debug).toHaveBeenCalledWith("sdk hook: PreToolUse started");
+    expect(logMock.info).toHaveBeenCalledWith("sdk hook: PreToolUse success (exit=0)");
   });
 });

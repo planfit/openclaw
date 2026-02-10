@@ -112,6 +112,20 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
 
   try {
     for await (const msg of query({ prompt: params.prompt, options })) {
+      if (msg.type === "system" && "subtype" in msg && msg.subtype === "init" && "tools" in msg) {
+        log.info(
+          `sdk init: model=${msg.model} tools=${msg.tools.length} mcp=${msg.mcp_servers.map((s: { name: string; status: string }) => `${s.name}:${s.status}`).join(",")}`,
+        );
+      } else if (msg.type === "system" && "subtype" in msg && msg.subtype === "hook_started") {
+        log.debug(`sdk hook: ${msg.hook_event} started`);
+      } else if (msg.type === "system" && "subtype" in msg && msg.subtype === "hook_response") {
+        log.info(`sdk hook: ${msg.hook_event} ${msg.outcome} (exit=${msg.exit_code})`);
+      }
+
+      if (msg.type === "tool_progress") {
+        log.debug(`sdk tool: ${msg.tool_name} (${msg.elapsed_time_seconds}s)`);
+      }
+
       if (msg.type === "assistant") {
         if (msg.error) {
           log.warn(`sdk assistant error: ${msg.error}`);
