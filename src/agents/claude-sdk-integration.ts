@@ -97,6 +97,13 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
     maxTurns: params.maxTurns ?? DEFAULT_MAX_TURNS,
     systemPrompt,
     settingSources: ["user", "project", "local"],
+    debug: true,
+    stderr: (data: string) => {
+      const line = data.trim();
+      if (line) {
+        log.info(`sdk stderr: ${line}`);
+      }
+    },
     ...(params.model && { model: params.model }),
     ...(params.env && { env: params.env }),
     ...(params.resume
