@@ -63,7 +63,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   setConsoleTimestampPrefix(true);
   setVerbose(Boolean(opts.verbose));
   if (opts.claudeCliLogs) {
-    setConsoleSubsystemFilter(["agent/claude-cli"]);
+    setConsoleSubsystemFilter(["agent/claude-cli", "agent/claude-sdk"]);
     process.env.OPENCLAW_CLAUDE_CLI_LOG_OUTPUT = "1";
   }
   const wsLogRaw = (opts.compact ? "compact" : opts.wsLog) as string | undefined;
