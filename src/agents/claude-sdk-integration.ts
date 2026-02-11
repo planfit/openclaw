@@ -10,6 +10,8 @@
 import {
   query,
   type Options,
+  type PermissionMode,
+  type PermissionResult,
   type SDKResultError,
   type SDKAssistantMessageError,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -36,6 +38,14 @@ export interface SDKAgentParams {
   resume?: string;
   env?: Record<string, string | undefined>;
   onProgress?: (event: SDKProgressEvent) => void;
+  /** Permission mode for the SDK session (default: "bypassPermissions"). */
+  permissionMode?: PermissionMode;
+  /** Custom permission handler called before each tool execution. */
+  canUseTool?: (
+    toolName: string,
+    input: Record<string, unknown>,
+    options: { signal: AbortSignal; toolUseID: string; decisionReason?: string },
+  ) => Promise<PermissionResult>;
 }
 
 export interface SDKAgentResult {
@@ -97,15 +107,17 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
     ? { type: "preset" as const, preset: "claude_code" as const, append: params.systemPromptAppend }
     : { type: "preset" as const, preset: "claude_code" as const };
 
+  const effectivePermissionMode = params.permissionMode ?? "bypassPermissions";
   const options: Options = {
     cwd: params.cwd,
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
+    permissionMode: effectivePermissionMode,
+    allowDangerouslySkipPermissions: effectivePermissionMode === "bypassPermissions",
     maxTurns: params.maxTurns ?? DEFAULT_MAX_TURNS,
     systemPrompt,
     settingSources: ["user", "project", "local"],
     ...(params.model && { model: params.model }),
     ...(params.env && { env: params.env }),
+    ...(params.canUseTool && { canUseTool: params.canUseTool }),
     ...(params.resume
       ? { resume: params.resume }
       : params.sessionId

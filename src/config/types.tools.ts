@@ -589,6 +589,17 @@ export type ToolsConfig = {
     model?: string;
     /** Maximum turns for a single Claude Code invocation. */
     maxTurns?: number;
+    /** Permission control for Claude Code tool execution. */
+    permissions?: {
+      /** Tools to auto-allow without prompting (default: Read, Glob, Grep, Write, Edit, etc.) */
+      autoAllow?: string[];
+      /** Patterns to auto-deny. Format: "ToolName:command_substring" */
+      autoDeny?: string[];
+      /** Enable gateway approval for ambiguous operations (default: false) */
+      gatewayApproval?: boolean;
+      /** Timeout for gateway approval in ms (default: 120000) */
+      approvalTimeoutMs?: number;
+    };
   };
   /** Exec tool defaults. */
   exec?: ExecToolConfig;

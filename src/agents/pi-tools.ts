@@ -524,6 +524,10 @@ export function createOpenClawCodingTools(options?: {
         cwd: options?.workspaceDir,
         model: options?.config?.tools?.claudeCode?.model,
         maxTurns: options?.config?.tools?.claudeCode?.maxTurns,
+        permissions: {
+          ...options?.config?.tools?.claudeCode?.permissions,
+          sessionKey: options?.sessionKey,
+        },
       }) as unknown as AnyAgentTool,
     );
   }

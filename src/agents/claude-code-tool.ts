@@ -1,15 +1,46 @@
-import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
+import type { PermissionResult } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  AgentTool,
+  AgentToolResult,
+  AgentToolUpdateCallback,
+} from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
 import { runSDKAgent, type SDKProgressEvent } from "./claude-sdk-integration.js";
 
 const claudeCodeSchema = Type.Object({
   prompt: Type.String({ description: "The task or question for Claude Code" }),
   model: Type.Optional(Type.String({ description: "Model override (default: inherited)" })),
+  permissionMode: Type.Optional(
+    Type.Union([Type.Literal("execute"), Type.Literal("plan")], {
+      description:
+        "execute (default): run immediately. plan: generate plan without execution, returns sessionId for resume.",
+    }),
+  ),
+  resume: Type.Optional(
+    Type.String({
+      description:
+        "Session ID from a previous plan-mode call. Resumes and executes the planned work.",
+    }),
+  ),
 });
 
 export type ClaudeCodeToolDetails =
   | { status: "running"; phase: string; info?: string }
+  | { status: "planned"; sessionId: string; summary: string }
   | { status: "completed"; durationMs: number; numTurns: number; sessionId: string };
+
+export type ClaudeCodePermissions = {
+  /** Tools to auto-allow without prompting (default: Read, Glob, Grep, Write, Edit, etc.) */
+  autoAllow?: string[];
+  /** Patterns to auto-deny. Format: "ToolName:command_substring" */
+  autoDeny?: string[];
+  /** Enable gateway approval for ambiguous operations (default: false) */
+  gatewayApproval?: boolean;
+  /** Timeout for gateway approval in ms (default: 120000) */
+  approvalTimeoutMs?: number;
+  /** Session key for gateway approval requests */
+  sessionKey?: string;
+};
 
 export function createClaudeCodeTool(defaults?: {
   cwd?: string;
@@ -17,6 +48,7 @@ export function createClaudeCodeTool(defaults?: {
   maxTurns?: number;
   systemPromptAppend?: string;
   env?: Record<string, string | undefined>;
+  permissions?: ClaudeCodePermissions;
 }): AgentTool<typeof claudeCodeSchema, ClaudeCodeToolDetails> {
   return {
     name: "claude_code",
@@ -25,6 +57,8 @@ export function createClaudeCodeTool(defaults?: {
       "Execute coding tasks using Claude Code with built-in file editing, bash execution, and code analysis tools. Use this for complex coding tasks that require multiple file operations.",
     parameters: claudeCodeSchema,
     execute: async (_toolCallId, params, _signal, onUpdate) => {
+      const isPlan = params.permissionMode === "plan";
+
       const result = await runSDKAgent({
         prompt: params.prompt,
         cwd: defaults?.cwd ?? process.cwd(),
@@ -32,6 +66,9 @@ export function createClaudeCodeTool(defaults?: {
         maxTurns: defaults?.maxTurns,
         systemPromptAppend: defaults?.systemPromptAppend,
         env: defaults?.env,
+        permissionMode: isPlan ? "plan" : "acceptEdits",
+        resume: params.resume,
+        canUseTool: isPlan ? undefined : buildCanUseTool(defaults?.permissions, onUpdate),
         onProgress: (evt: SDKProgressEvent) => {
           if (!onUpdate) {
             return;
@@ -74,6 +111,17 @@ export function createClaudeCodeTool(defaults?: {
         },
       });
 
+      if (isPlan) {
+        return {
+          content: [{ type: "text", text: result.text }],
+          details: {
+            status: "planned" as const,
+            sessionId: result.sessionId,
+            summary: result.text,
+          },
+        };
+      }
+
       return {
         content: [{ type: "text", text: result.text }],
         details: {
@@ -84,5 +132,86 @@ export function createClaudeCodeTool(defaults?: {
         },
       };
     },
+  };
+}
+
+function buildCanUseTool(
+  permissions: ClaudeCodePermissions | undefined,
+  onUpdate: AgentToolUpdateCallback<ClaudeCodeToolDetails> | undefined,
+) {
+  const autoAllow = new Set(
+    permissions?.autoAllow ?? ["Read", "Glob", "Grep", "Write", "Edit", "TodoRead", "TodoWrite"],
+  );
+  const autoDenyPatterns = permissions?.autoDeny ?? [
+    "Bash:rm -rf",
+    "Bash:git push --force",
+    "Bash:git reset --hard",
+  ];
+
+  return async (
+    toolName: string,
+    input: Record<string, unknown>,
+    _options: { signal: AbortSignal; toolUseID: string; decisionReason?: string },
+  ): Promise<PermissionResult> => {
+    // Tier 1: Rule-based auto-allow
+    if (autoAllow.has(toolName)) {
+      return { behavior: "allow" };
+    }
+
+    // Tier 1: Rule-based auto-deny
+    const command = typeof input.command === "string" ? input.command : "";
+    for (const pattern of autoDenyPatterns) {
+      const colonIdx = pattern.indexOf(":");
+      if (colonIdx === -1) {
+        continue;
+      }
+      const tool = pattern.slice(0, colonIdx);
+      const cmdSubstr = pattern.slice(colonIdx + 1);
+      if (toolName === tool && command.includes(cmdSubstr)) {
+        return { behavior: "deny", message: `Auto-denied: ${pattern}` };
+      }
+    }
+
+    // Tier 2: Gateway approval (requires gatewayApproval + sessionKey)
+    if (permissions?.gatewayApproval && permissions.sessionKey) {
+      onUpdate?.({
+        content: [{ type: "text", text: `Permission requested: ${toolName}(${command || "..."})` }],
+        details: {
+          status: "running",
+          phase: "permission",
+          info: `${toolName}: awaiting approval`,
+        },
+      });
+
+      try {
+        const { callGatewayTool } = await import("./tools/gateway.js");
+        const timeoutMs = permissions.approvalTimeoutMs ?? 120_000;
+        const result = await callGatewayTool<{ decision: string }>(
+          "exec.approval.request",
+          { timeoutMs: timeoutMs + 10_000 },
+          {
+            id: crypto.randomUUID(),
+            command: `claude_code:${toolName} ${command}`.slice(0, 200),
+            cwd: "",
+            host: "gateway",
+            security: "ask",
+            ask: "always",
+            sessionKey: permissions.sessionKey,
+            timeoutMs,
+          },
+        );
+        const decision =
+          result && typeof result === "object" ? (result as { decision?: string }).decision : null;
+        if (decision === "allow-once" || decision === "allow-always") {
+          return { behavior: "allow" };
+        }
+        return { behavior: "deny", message: "Approval denied or timed out" };
+      } catch {
+        return { behavior: "deny", message: "Approval request failed" };
+      }
+    }
+
+    // Tier 3: No gateway — allow remaining tools (acceptEdits mode handles file safety)
+    return { behavior: "allow" };
   };
 }
