@@ -21,6 +21,7 @@ import {
   type ProcessToolDefaults,
 } from "./bash-tools.js";
 import { listChannelAgentTools } from "./channel-tools.js";
+import { createClaudeCodeTool } from "./claude-code-tool.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
 import { wrapToolWithAbortSignal } from "./pi-tools.abort.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
@@ -360,6 +361,18 @@ export function createOpenClawCodingTools(options?: {
       requesterAgentIdOverride: agentId,
     }),
   ];
+
+  // Claude Code as a tool (enabled by default, disable with tools.claudeCode.enabled: false)
+  if (options?.config?.tools?.claudeCode?.enabled !== false) {
+    tools.push(
+      createClaudeCodeTool({
+        cwd: options?.workspaceDir,
+        model: options?.config?.tools?.claudeCode?.model,
+        maxTurns: options?.config?.tools?.claudeCode?.maxTurns,
+      }) as unknown as AnyAgentTool,
+    );
+  }
+
   // Security: treat unknown/undefined as unauthorized (opt-in, not opt-out)
   const senderIsOwner = options?.senderIsOwner === true;
   const toolsByAuthorization = applyOwnerOnlyToolPolicy(tools, senderIsOwner);

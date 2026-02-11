@@ -440,6 +440,15 @@ export type ToolsConfig = {
     /** Approved senders for /elevated (per-provider allowlists). */
     allowFrom?: AgentElevatedAllowFromConfig;
   };
+  /** Claude Code tool configuration (SDK-based coding agent). */
+  claudeCode?: {
+    /** Enable Claude Code tool (default: true). */
+    enabled?: boolean;
+    /** Model override for Claude Code (default: inherited from agent). */
+    model?: string;
+    /** Maximum turns for a single Claude Code invocation. */
+    maxTurns?: number;
+  };
   /** Exec tool defaults. */
   exec?: ExecToolConfig;
   /** Sub-agent tool policy defaults (deny wins). */

@@ -20,6 +20,12 @@ import { classifyFailoverReason, isFailoverErrorMessage } from "./pi-embedded-he
 
 const log = createSubsystemLogger("agent/claude-sdk");
 
+export type SDKProgressEvent =
+  | { phase: "init"; model: string; toolCount: number }
+  | { phase: "tool_progress"; toolName: string; elapsedSeconds: number }
+  | { phase: "tool_use"; toolNames: string[] }
+  | { phase: "complete"; durationMs: number; numTurns: number };
+
 export interface SDKAgentParams {
   prompt: string;
   cwd: string;
@@ -29,6 +35,7 @@ export interface SDKAgentParams {
   sessionId?: string;
   resume?: string;
   env?: Record<string, string | undefined>;
+  onProgress?: (event: SDKProgressEvent) => void;
 }
 
 export interface SDKAgentResult {
@@ -116,6 +123,11 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
         log.info(
           `sdk init: model=${msg.model} tools=${msg.tools.length} mcp=${msg.mcp_servers.map((s: { name: string; status: string }) => `${s.name}:${s.status}`).join(",")}`,
         );
+        params.onProgress?.({
+          phase: "init",
+          model: msg.model,
+          toolCount: msg.tools.length,
+        });
       } else if (msg.type === "system" && "subtype" in msg && msg.subtype === "hook_started") {
         log.info(`sdk hook: ${msg.hook_event} started`);
       } else if (msg.type === "system" && "subtype" in msg && msg.subtype === "hook_response") {
@@ -124,6 +136,11 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
 
       if (msg.type === "tool_progress") {
         log.info(`sdk tool: ${msg.tool_name} (${msg.elapsed_time_seconds}s)`);
+        params.onProgress?.({
+          phase: "tool_progress",
+          toolName: msg.tool_name,
+          elapsedSeconds: msg.elapsed_time_seconds,
+        });
       }
 
       if (msg.type === "assistant") {
@@ -132,6 +149,10 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
         ) as Array<{ name: string }> | undefined;
         if (toolUses?.length) {
           log.info(`sdk tool_use: ${toolUses.map((t) => t.name).join(", ")}`);
+          params.onProgress?.({
+            phase: "tool_use",
+            toolNames: toolUses.map((t) => t.name),
+          });
         }
         if (msg.error) {
           log.warn(`sdk assistant error: ${msg.error}`);
@@ -149,6 +170,11 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
 
       if (msg.type === "result") {
         if (msg.subtype === "success") {
+          params.onProgress?.({
+            phase: "complete",
+            durationMs: msg.duration_ms,
+            numTurns: msg.num_turns,
+          });
           return {
             text: msg.result,
             sessionId: msg.session_id,
