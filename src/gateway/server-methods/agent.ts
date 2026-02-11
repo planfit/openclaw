@@ -465,6 +465,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       const nextEntryPatch: SessionEntry = {
         sessionId,
         updatedAt: now,
+        sessionFile: entry?.sessionFile,
         thinkingLevel: entry?.thinkingLevel,
         verboseLevel: entry?.verboseLevel,
         reasoningLevel: entry?.reasoningLevel,
