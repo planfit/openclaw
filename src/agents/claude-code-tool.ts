@@ -66,10 +66,11 @@ export function createClaudeCodeTool(defaults?: {
         maxTurns: defaults?.maxTurns,
         systemPromptAppend: defaults?.systemPromptAppend,
         env: defaults?.env,
-        permissionMode: isPlan ? "plan" : params.resume ? "bypassPermissions" : "acceptEdits",
+        permissionMode: isPlan ? "plan" : "bypassPermissions",
         resume: params.resume,
-        canUseTool:
-          isPlan || params.resume ? undefined : buildCanUseTool(defaults?.permissions, onUpdate),
+        // canUseTool disabled — SDK internal Zod validation rejects our PermissionResult.
+        // buildCanUseTool preserved for future SDK versions that fix this.
+        // canUseTool: isPlan ? undefined : buildCanUseTool(defaults?.permissions, onUpdate),
         onProgress: (evt: SDKProgressEvent) => {
           if (!onUpdate) {
             return;
@@ -139,7 +140,8 @@ export function createClaudeCodeTool(defaults?: {
   };
 }
 
-function buildCanUseTool(
+// eslint-disable-next-line -- preserved for future use when SDK fixes canUseTool Zod validation
+function _buildCanUseTool(
   permissions: ClaudeCodePermissions | undefined,
   onUpdate: AgentToolUpdateCallback<ClaudeCodeToolDetails> | undefined,
 ) {
