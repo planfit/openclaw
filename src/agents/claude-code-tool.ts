@@ -113,7 +113,12 @@ export function createClaudeCodeTool(defaults?: {
 
       if (isPlan) {
         return {
-          content: [{ type: "text", text: result.text }],
+          content: [
+            {
+              type: "text",
+              text: `${result.text}\n\n---\nsessionId: ${result.sessionId}\n(Use this sessionId with the "resume" parameter to execute this plan)`,
+            },
+          ],
           details: {
             status: "planned" as const,
             sessionId: result.sessionId,
