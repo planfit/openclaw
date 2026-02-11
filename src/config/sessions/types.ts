@@ -36,6 +36,7 @@ export type SessionEntry = {
   /** Parent session key that spawned this session (used for sandbox session-tool scoping). */
   spawnedBy?: string;
   systemSent?: boolean;
+  historyFirstOnlySent?: boolean;
   abortedLastRun?: boolean;
   chatType?: SessionChatType;
   thinkingLevel?: string;

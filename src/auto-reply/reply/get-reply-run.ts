@@ -182,18 +182,14 @@ export async function runPreparedReply(
       })
     : "";
   const groupSystemPrompt = sessionCtx.GroupSystemPrompt?.trim() ?? "";
-  if (sessionCtx.HistoryFirstOnly || Array.isArray(sessionCtx.InboundHistory)) {
-    logVerbose(
-      `[history-scope] isNewSession=${isNewSession} HistoryFirstOnly=${!!sessionCtx.HistoryFirstOnly} historyLen=${Array.isArray(sessionCtx.InboundHistory) ? sessionCtx.InboundHistory.length : 0} systemSent=${systemSent} sessionKey=${sessionKey}`,
-    );
-  }
+  const suppressHistory = sessionEntry?.historyFirstOnlySent === true;
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession
-      ? sessionCtx
+      ? { ...sessionCtx, ...(suppressHistory ? { InboundHistory: undefined } : {}) }
       : {
           ...sessionCtx,
           ThreadStarterBody: undefined,
-          ...(sessionCtx.HistoryFirstOnly ? { InboundHistory: undefined } : {}),
+          ...(suppressHistory ? { InboundHistory: undefined } : {}),
         },
   );
   const extraSystemPrompt = [inboundMetaPrompt, groupIntro, groupSystemPrompt]
@@ -219,13 +215,31 @@ export async function runPreparedReply(
   const baseBodyFinal = isBareSessionReset ? BARE_SESSION_RESET_PROMPT : baseBody;
   const inboundUserContext = buildInboundUserContextPrefix(
     isNewSession
-      ? sessionCtx
+      ? { ...sessionCtx, ...(suppressHistory ? { InboundHistory: undefined } : {}) }
       : {
           ...sessionCtx,
           ThreadStarterBody: undefined,
-          ...(sessionCtx.HistoryFirstOnly ? { InboundHistory: undefined } : {}),
+          ...(suppressHistory ? { InboundHistory: undefined } : {}),
         },
   );
+  if (
+    !suppressHistory &&
+    Array.isArray(sessionCtx.InboundHistory) &&
+    sessionCtx.InboundHistory.length > 0 &&
+    sessionEntry &&
+    sessionStore &&
+    sessionKey
+  ) {
+    sessionEntry.historyFirstOnlySent = true;
+    sessionEntry.updatedAt = Date.now();
+    sessionStore[sessionKey] = sessionEntry;
+    if (storePath) {
+      const entry = sessionEntry;
+      await updateSessionStore(storePath, (store) => {
+        store[sessionKey] = entry;
+      });
+    }
+  }
   const baseBodyForPrompt = isBareSessionReset
     ? baseBodyFinal
     : [inboundUserContext, baseBodyFinal].filter(Boolean).join("\n\n");
