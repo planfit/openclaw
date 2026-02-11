@@ -205,7 +205,10 @@ export async function prepareSlackMessage(params: {
   });
   const sessionKey = threadKeys.sessionKey;
   const historyKey =
-    isThreadReply && ctx.threadHistoryScope === "thread" ? sessionKey : message.channel;
+    isThreadReply &&
+    (ctx.threadHistoryScope === "thread" || ctx.threadHistoryScope === "first-only")
+      ? sessionKey
+      : message.channel;
 
   const mentionRegexes = buildMentionRegexes(cfg, route.agentId);
   const hasAnyMention = /<@[^>]+>/.test(message.text ?? "");
@@ -563,6 +566,7 @@ export async function prepareSlackMessage(params: {
     CommandAuthorized: commandAuthorized,
     OriginatingChannel: "slack" as const,
     OriginatingTo: slackTo,
+    HistoryFirstOnly: isThreadReply && ctx.threadHistoryScope === "first-only",
   }) satisfies FinalizedMsgContext;
 
   await recordInboundSession({

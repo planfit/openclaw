@@ -87,7 +87,7 @@ export type SlackMonitorContext = {
   reactionMode: SlackReactionNotificationMode;
   reactionAllowlist: Array<string | number>;
   replyToMode: "off" | "first" | "all";
-  threadHistoryScope: "thread" | "channel";
+  threadHistoryScope: "thread" | "channel" | "first-only";
   threadInheritParent: boolean;
   slashCommand: Required<import("../../config/config.js").SlackSlashCommandConfig>;
   textLimit: number;

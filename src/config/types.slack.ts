@@ -70,7 +70,7 @@ export type SlackSlashCommandConfig = {
 
 export type SlackThreadConfig = {
   /** Scope for thread history context (thread|channel). Default: thread. */
-  historyScope?: "thread" | "channel";
+  historyScope?: "thread" | "channel" | "first-only";
   /** If true, thread sessions inherit the parent channel transcript. Default: false. */
   inheritParent?: boolean;
 };
