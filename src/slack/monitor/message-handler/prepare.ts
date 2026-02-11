@@ -670,7 +670,7 @@ export async function prepareSlackMessage(params: {
   const effectiveMedia = effectiveDirectMedia ?? threadStarterMedia;
   const firstMedia = effectiveMedia?.[0];
 
-  const inboundHistory =
+  const accumulatedHistory =
     isRoomish && ctx.historyLimit > 0
       ? (ctx.channelHistories.get(historyKey) ?? []).map((entry) => ({
           sender: entry.sender,
@@ -679,6 +679,36 @@ export async function prepareSlackMessage(params: {
         }))
       : undefined;
   const commandBody = textForCommandDetection.trim();
+
+  // For thread replies with no accumulated history, fetch prior thread messages
+  // from Slack API so the thread session has context (including bot replies).
+  let threadReplyHistory: typeof accumulatedHistory;
+  if (isThreadReply && threadTs && !accumulatedHistory?.length) {
+    try {
+      const response = (await ctx.app.client.conversations.replies({
+        channel: message.channel,
+        ts: threadTs,
+        limit: 50,
+      })) as {
+        messages?: Array<{ text?: string; user?: string; bot_id?: string; ts?: string }>;
+      };
+      const messages = response.messages ?? [];
+      threadReplyHistory = messages
+        .filter((m) => m.ts !== message.ts)
+        .map((m) => {
+          const isBot = Boolean(m.bot_id) || m.user === ctx.botUserId;
+          return {
+            sender: isBot ? "assistant" : (m.user ?? "unknown"),
+            body: m.text ?? "",
+            timestamp: m.ts ? Math.round(Number(m.ts) * 1000) : undefined,
+          };
+        });
+    } catch {
+      // Thread history fetch is best-effort
+    }
+  }
+
+  const inboundHistory = accumulatedHistory?.length ? accumulatedHistory : threadReplyHistory;
 
   const ctxPayload = finalizeInboundContext({
     Body: combinedBody,
