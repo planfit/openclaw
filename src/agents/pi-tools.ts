@@ -15,6 +15,7 @@ import {
   type ProcessToolDefaults,
 } from "./bash-tools.js";
 import { listChannelAgentTools } from "./channel-tools.js";
+import { createClaudeCodeTool } from "./claude-code-tool.js";
 import { resolveImageSanitizationLimits } from "./image-sanitization.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import { createOpenClawTools } from "./openclaw-tools.js";
@@ -515,6 +516,18 @@ export function createOpenClawCodingTools(options?: {
       sessionId: options?.sessionId,
     }),
   ];
+
+  // Claude Code as a tool (enabled by default, disable with tools.claudeCode.enabled: false)
+  if (options?.config?.tools?.claudeCode?.enabled !== false) {
+    tools.push(
+      createClaudeCodeTool({
+        cwd: options?.workspaceDir,
+        model: options?.config?.tools?.claudeCode?.model,
+        maxTurns: options?.config?.tools?.claudeCode?.maxTurns,
+      }) as unknown as AnyAgentTool,
+    );
+  }
+
   const toolsForMessageProvider = applyMessageProviderToolPolicy(tools, options?.messageProvider);
   const toolsForModelProvider = applyModelProviderToolPolicy(toolsForMessageProvider, {
     modelProvider: options?.modelProvider,
