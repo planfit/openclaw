@@ -66,9 +66,10 @@ export function createClaudeCodeTool(defaults?: {
         maxTurns: defaults?.maxTurns,
         systemPromptAppend: defaults?.systemPromptAppend,
         env: defaults?.env,
-        permissionMode: isPlan ? "plan" : "acceptEdits",
+        permissionMode: isPlan ? "plan" : params.resume ? "bypassPermissions" : "acceptEdits",
         resume: params.resume,
-        canUseTool: isPlan ? undefined : buildCanUseTool(defaults?.permissions, onUpdate),
+        canUseTool:
+          isPlan || params.resume ? undefined : buildCanUseTool(defaults?.permissions, onUpdate),
         onProgress: (evt: SDKProgressEvent) => {
           if (!onUpdate) {
             return;
