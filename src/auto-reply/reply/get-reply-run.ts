@@ -264,6 +264,11 @@ export async function runPreparedReply(
       })
     : "";
   const groupSystemPrompt = sessionCtx.GroupSystemPrompt?.trim() ?? "";
+  if (sessionCtx.HistoryFirstOnly || Array.isArray(sessionCtx.InboundHistory)) {
+    logVerbose(
+      `[history-scope] isNewSession=${isNewSession} HistoryFirstOnly=${!!sessionCtx.HistoryFirstOnly} historyLen=${Array.isArray(sessionCtx.InboundHistory) ? sessionCtx.InboundHistory.length : 0} systemSent=${systemSent} sessionKey=${sessionKey}`,
+    );
+  }
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
   );
