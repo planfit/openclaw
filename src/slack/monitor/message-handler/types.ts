@@ -15,6 +15,7 @@ export type PreparedSlackMessage = {
   ctxPayload: FinalizedMsgContext;
   isDirectMessage: boolean;
   isRoomish: boolean;
+  effectiveReplyToMode: "off" | "first" | "all";
   historyKey: string;
   preview: string;
   ackReactionMessageTs?: string;

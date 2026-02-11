@@ -1,5 +1,4 @@
 import type { FinalizedMsgContext } from "../../../auto-reply/templating.js";
-import type { ResolvedSlackAccount } from "../../accounts.js";
 import type { SlackMessageEvent } from "../../types.js";
 import type { PreparedSlackMessage } from "./types.js";
 import { resolveAckReaction } from "../../../agents/identity.js";
@@ -36,6 +35,7 @@ import { upsertChannelPairingRequest } from "../../../pairing/pairing-store.js";
 import { resolveAgentRoute } from "../../../routing/resolve-route.js";
 import { resolveThreadSessionKeys } from "../../../routing/session-key.js";
 import { buildUntrustedChannelMetadata } from "../../../security/channel-metadata.js";
+import { resolveSlackReplyToMode, type ResolvedSlackAccount } from "../../accounts.js";
 import { reactSlackMessage } from "../../actions.js";
 import { sendMessageSlack } from "../../send.js";
 import { resolveSlackThreadContext } from "../../threading.js";
@@ -193,7 +193,9 @@ export async function prepareSlackMessage(params: {
   });
 
   const baseSessionKey = route.sessionKey;
-  const threadContext = resolveSlackThreadContext({ message, replyToMode: ctx.replyToMode });
+  const chatType = isDirectMessage ? "direct" : isGroupDm ? "group" : "channel";
+  const effectiveReplyToMode = resolveSlackReplyToMode(account, chatType);
+  const threadContext = resolveSlackThreadContext({ message, replyToMode: effectiveReplyToMode });
   const threadTs = threadContext.incomingThreadTs;
   const isThreadReply = threadContext.isThreadReply;
   const threadKeys = resolveThreadSessionKeys({
@@ -576,6 +578,7 @@ export async function prepareSlackMessage(params: {
     ctxPayload,
     isDirectMessage,
     isRoomish,
+    effectiveReplyToMode,
     historyKey,
     preview,
     ackReactionMessageTs,
