@@ -23,7 +23,7 @@ const DEFAULT_HUMAN_DELAY_MIN_MS = 800;
 const DEFAULT_HUMAN_DELAY_MAX_MS = 2500;
 
 /** Generate a random delay within the configured range. */
-function getHumanDelay(config: HumanDelayConfig | undefined): number {
+export function getHumanDelay(config: HumanDelayConfig | undefined): number {
   const mode = config?.mode ?? "off";
   if (mode === "off") {
     return 0;

@@ -39,7 +39,6 @@ import { resolveBlockStreamingCoalescing } from "./block-streaming.js";
 import { createFollowupRunner } from "./followup-runner.js";
 import { enqueueFollowupRun, type FollowupRun, type QueueSettings } from "./queue.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
-import { incrementCompactionCount } from "./session-updates.js";
 import { persistSessionUsageUpdate } from "./session-usage.js";
 import { createTypingSignaler } from "./typing-mode.js";
 
@@ -214,6 +213,10 @@ export async function runReplyAgent(params: {
     sessionKey,
     storePath,
     isHeartbeat,
+    onCompactionStatus:
+      resolvedVerboseLevel !== "off" && opts?.onBlockReply
+        ? (payload) => opts.onBlockReply!(payload)
+        : undefined,
   });
 
   const runFollowupTurn = createFollowupRunner({
@@ -497,16 +500,8 @@ export async function runReplyAgent(params: {
     let finalPayloads = replyPayloads;
     const verboseEnabled = resolvedVerboseLevel !== "off";
     if (autoCompactionCompleted) {
-      const count = await incrementCompactionCount({
-        sessionEntry: activeSessionEntry,
-        sessionStore: activeSessionStore,
-        sessionKey,
-        storePath,
-      });
-      if (verboseEnabled) {
-        const suffix = typeof count === "number" ? ` (count ${count})` : "";
-        finalPayloads = [{ text: `🧹 Auto-compaction complete${suffix}.` }, ...finalPayloads];
-      }
+      // Compaction count already incremented and status message already sent
+      // via onAgentEvent in agent-runner-execution.ts — no finalPayloads prepend needed.
     }
     if (verboseEnabled && activeIsNewSession) {
       finalPayloads = [{ text: `🧭 New session: ${followupRun.run.sessionId}` }, ...finalPayloads];

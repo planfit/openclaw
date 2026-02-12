@@ -37,6 +37,7 @@ import { buildThreadingToolContext, resolveEnforceFinalTag } from "./agent-runne
 import { createBlockReplyPayloadKey, type BlockReplyPipeline } from "./block-reply-pipeline.js";
 import { parseReplyDirectives } from "./reply-directives.js";
 import { applyReplyTagsToPayload, isRenderablePayload } from "./reply-payloads.js";
+import { incrementCompactionCount } from "./session-updates.js";
 
 export type AgentRunLoopResult =
   | {
@@ -347,12 +348,27 @@ export async function runAgentTurnWithFallback(params: {
                   await params.typingSignals.signalToolStart();
                 }
               }
-              // Track auto-compaction completion
+              // Track auto-compaction and send immediate status messages
               if (evt.stream === "compaction") {
                 const phase = typeof evt.data.phase === "string" ? evt.data.phase : "";
                 const willRetry = Boolean(evt.data.willRetry);
+
+                if (phase === "start" && params.resolvedVerboseLevel !== "off") {
+                  params.opts?.onBlockReply?.({ text: "🧹 Auto-compaction in progress…" });
+                }
+
                 if (phase === "end" && !willRetry) {
                   autoCompactionCompleted = true;
+                  if (params.resolvedVerboseLevel !== "off") {
+                    const count = await incrementCompactionCount({
+                      sessionEntry: params.getActiveSessionEntry(),
+                      sessionStore: params.activeSessionStore,
+                      sessionKey: params.sessionKey,
+                      storePath: params.storePath,
+                    });
+                    const suffix = typeof count === "number" ? ` (count ${count})` : "";
+                    params.opts?.onBlockReply?.({ text: `🧹 Auto-compaction complete${suffix}.` });
+                  }
                 }
               }
             },

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.js";
-import type { GetReplyOptions } from "../types.js";
+import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { FollowupRun } from "./queue.js";
 import { resolveAgentModelFallbacksOverride } from "../../agents/agent-scope.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
@@ -37,6 +37,7 @@ export async function runMemoryFlushIfNeeded(params: {
   sessionKey?: string;
   storePath?: string;
   isHeartbeat: boolean;
+  onCompactionStatus?: (payload: ReplyPayload) => Promise<void> | void;
 }): Promise<SessionEntry | undefined> {
   const memoryFlushSettings = resolveMemoryFlushSettings(params.cfg);
   if (!memoryFlushSettings) {
@@ -150,12 +151,18 @@ export async function runMemoryFlushIfNeeded(params: {
           bashElevated: params.followupRun.run.bashElevated,
           timeoutMs: params.followupRun.run.timeoutMs,
           runId: flushRunId,
-          onAgentEvent: (evt) => {
+          onAgentEvent: async (evt) => {
             if (evt.stream === "compaction") {
               const phase = typeof evt.data.phase === "string" ? evt.data.phase : "";
               const willRetry = Boolean(evt.data.willRetry);
+              if (phase === "start" && params.onCompactionStatus) {
+                await params.onCompactionStatus({ text: "🧹 Memory compaction in progress…" });
+              }
               if (phase === "end" && !willRetry) {
                 memoryCompactionCompleted = true;
+                if (params.onCompactionStatus) {
+                  await params.onCompactionStatus({ text: "🧹 Memory compaction complete." });
+                }
               }
             }
           },

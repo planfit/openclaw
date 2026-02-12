@@ -7,14 +7,17 @@ import type { TypingController } from "./typing.js";
 import { resolveAgentModelFallbacksOverride } from "../../agents/agent-scope.js";
 import { lookupContextTokens } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
+import { resolveHumanDelayConfig } from "../../agents/identity.js";
 import { runWithModelFallback } from "../../agents/model-fallback.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
 import { resolveAgentIdFromSessionKey, type SessionEntry } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { defaultRuntime } from "../../runtime.js";
+import { sleep } from "../../utils.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
 import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
+import { getHumanDelay } from "./reply-dispatcher.js";
 import {
   applyReplyThreading,
   filterMessagingToolDuplicates,
@@ -72,6 +75,13 @@ export function createFollowupRunner(params: {
       return;
     }
 
+    // Resolve human delay config for pacing between messages on external channels.
+    const agentId = resolveAgentIdFromSessionKey(queued.run.sessionKey);
+    const humanDelayConfig = agentId
+      ? resolveHumanDelayConfig(queued.run.config, agentId)
+      : undefined;
+
+    let sentCount = 0;
     for (const payload of payloads) {
       if (!payload?.text && !payload?.mediaUrl && !payload?.mediaUrls?.length) {
         continue;
@@ -83,6 +93,16 @@ export function createFollowupRunner(params: {
       ) {
         continue;
       }
+
+      // Add pacing delay between messages routed to external channels (Slack/Telegram)
+      // to prevent burst delivery. Skip delay for the first message.
+      if (sentCount > 0 && shouldRouteToOriginating) {
+        const delayMs = getHumanDelay(humanDelayConfig);
+        if (delayMs > 0) {
+          await sleep(delayMs);
+        }
+      }
+
       await typingSignals.signalTextDelta(payload.text);
 
       // Route to originating channel if set, otherwise fall back to dispatcher.
@@ -108,6 +128,8 @@ export function createFollowupRunner(params: {
       } else if (opts?.onBlockReply) {
         await opts.onBlockReply(payload);
       }
+
+      sentCount++;
     }
   };
 
@@ -120,7 +142,6 @@ export function createFollowupRunner(params: {
           verboseLevel: queued.run.verboseLevel,
         });
       }
-      let autoCompactionCompleted = false;
       let runResult: Awaited<ReturnType<typeof runEmbeddedPiAgent>>;
       let fallbackProvider = queued.run.provider;
       let fallbackModel = queued.run.model;
@@ -172,14 +193,35 @@ export function createFollowupRunner(params: {
               timeoutMs: queued.run.timeoutMs,
               runId,
               blockReplyBreak: queued.run.blockReplyBreak,
-              onAgentEvent: (evt) => {
+              onAgentEvent: async (evt) => {
                 if (evt.stream !== "compaction") {
                   return;
                 }
                 const phase = typeof evt.data.phase === "string" ? evt.data.phase : "";
                 const willRetry = Boolean(evt.data.willRetry);
+
+                if (
+                  phase === "start" &&
+                  queued.run.verboseLevel &&
+                  queued.run.verboseLevel !== "off"
+                ) {
+                  await sendFollowupPayloads([{ text: "🧹 Auto-compaction in progress…" }], queued);
+                }
+
                 if (phase === "end" && !willRetry) {
-                  autoCompactionCompleted = true;
+                  if (queued.run.verboseLevel && queued.run.verboseLevel !== "off") {
+                    const count = await incrementCompactionCount({
+                      sessionEntry,
+                      sessionStore,
+                      sessionKey,
+                      storePath,
+                    });
+                    const suffix = typeof count === "number" ? ` (count ${count})` : "";
+                    await sendFollowupPayloads(
+                      [{ text: `🧹 Auto-compaction complete${suffix}.` }],
+                      queued,
+                    );
+                  }
                 }
               },
             });
@@ -262,20 +304,8 @@ export function createFollowupRunner(params: {
         return;
       }
 
-      if (autoCompactionCompleted) {
-        const count = await incrementCompactionCount({
-          sessionEntry,
-          sessionStore,
-          sessionKey,
-          storePath,
-        });
-        if (queued.run.verboseLevel && queued.run.verboseLevel !== "off") {
-          const suffix = typeof count === "number" ? ` (count ${count})` : "";
-          finalPayloads.unshift({
-            text: `🧹 Auto-compaction complete${suffix}.`,
-          });
-        }
-      }
+      // Compaction count already incremented and status message already sent
+      // via onAgentEvent — no finalPayloads prepend needed.
 
       await sendFollowupPayloads(finalPayloads, queued);
     } finally {
