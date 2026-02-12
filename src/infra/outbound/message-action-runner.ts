@@ -18,6 +18,7 @@ import {
 } from "../../agents/tools/common.js";
 import { parseReplyDirectives } from "../../auto-reply/reply/reply-directives.js";
 import { dispatchChannelMessageAction } from "../../channels/plugins/message-actions.js";
+import { loadWebMedia } from "../../media/load-web-media.js";
 import { extensionForMime } from "../../media/mime.js";
 import { parseSlackTarget } from "../../slack/targets.js";
 import { parseTelegramTarget } from "../../telegram/targets.js";
@@ -27,7 +28,6 @@ import {
   type GatewayClientMode,
   type GatewayClientName,
 } from "../../utils/message-channel.js";
-import { loadWebMedia } from "../../web/media.js";
 import { throwIfAborted } from "./abort.js";
 import {
   listConfiguredMessageChannels,
@@ -713,7 +713,7 @@ async function handleBroadcastAction(
   }
   return {
     kind: "broadcast",
-    channel: targetChannels[0] ?? "discord",
+    channel: targetChannels[0] ?? "telegram",
     action: "broadcast",
     handledBy: input.dryRun ? "dry-run" : "core",
     payload: { results },
