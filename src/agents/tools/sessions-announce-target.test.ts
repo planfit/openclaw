@@ -13,16 +13,16 @@ const installRegistry = async () => {
   setActivePluginRegistry(
     createTestRegistry([
       {
-        pluginId: "discord",
+        pluginId: "slack",
         source: "test",
         plugin: {
-          id: "discord",
+          id: "slack",
           meta: {
-            id: "discord",
-            label: "Discord",
-            selectionLabel: "Discord",
-            docsPath: "/channels/discord",
-            blurb: "Discord test stub.",
+            id: "slack",
+            label: "Slack",
+            selectionLabel: "Slack",
+            docsPath: "/channels/slack",
+            blurb: "Slack test stub.",
           },
           capabilities: { chatTypes: ["direct", "channel", "thread"] },
           config: {
@@ -65,10 +65,10 @@ describe("resolveAnnounceTarget", () => {
   it("derives non-WhatsApp announce targets from the session key", async () => {
     const { resolveAnnounceTarget } = await loadResolveAnnounceTarget();
     const target = await resolveAnnounceTarget({
-      sessionKey: "agent:main:discord:group:dev",
-      displayKey: "agent:main:discord:group:dev",
+      sessionKey: "agent:main:slack:group:dev",
+      displayKey: "agent:main:slack:group:dev",
     });
-    expect(target).toEqual({ channel: "discord", to: "channel:dev" });
+    expect(target).toEqual({ channel: "slack", to: "channel:dev" });
     expect(callGatewayMock).not.toHaveBeenCalled();
   });
 

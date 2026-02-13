@@ -85,14 +85,14 @@ const createRegistry = (channels: PluginRegistry["channels"]): PluginRegistry =>
   diagnostics: [],
 });
 
-const createMSTeamsPlugin = (params?: { aliases?: string[] }): ChannelPlugin => ({
-  id: "msteams",
+const createSlackPlugin = (params?: { aliases?: string[] }): ChannelPlugin => ({
+  id: "slack",
   meta: {
-    id: "msteams",
-    label: "Microsoft Teams",
-    selectionLabel: "Microsoft Teams (Bot Framework)",
-    docsPath: "/channels/msteams",
-    blurb: "Bot Framework; enterprise support.",
+    id: "slack",
+    label: "Slack",
+    selectionLabel: "Slack (Bot)",
+    docsPath: "/channels/slack",
+    blurb: "Slack bot support.",
     aliases: params?.aliases,
   },
   capabilities: { chatTypes: ["direct"] },
@@ -127,12 +127,12 @@ describe("gateway server agent", () => {
     setActivePluginRegistry(emptyRegistry);
   });
 
-  test("agent routes main last-channel msteams", async () => {
+  test("agent routes main last-channel slack", async () => {
     const registry = createRegistry([
       {
-        pluginId: "msteams",
+        pluginId: "slack",
         source: "test",
-        plugin: createMSTeamsPlugin(),
+        plugin: createSlackPlugin(),
       },
     ]);
     registryState.registry = registry;
@@ -142,10 +142,10 @@ describe("gateway server agent", () => {
     await writeSessionStore({
       entries: {
         main: {
-          sessionId: "sess-teams",
+          sessionId: "sess-slack",
           updatedAt: Date.now(),
-          lastChannel: "msteams",
-          lastTo: "conversation:teams-123",
+          lastChannel: "slack",
+          lastTo: "channel:slack-123",
         },
       },
     });
@@ -154,68 +154,44 @@ describe("gateway server agent", () => {
       sessionKey: "main",
       channel: "last",
       deliver: true,
-      idempotencyKey: "idem-agent-last-msteams",
+      idempotencyKey: "idem-agent-last-slack",
     });
     expect(res.ok).toBe(true);
 
     const spy = vi.mocked(agentCommand);
     const call = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expectChannels(call, "msteams");
-    expect(call.to).toBe("conversation:teams-123");
+    expectChannels(call, "slack");
+    expect(call.to).toBe("channel:slack-123");
     expect(call.deliver).toBe(true);
     expect(call.bestEffortDeliver).toBe(true);
-    expect(call.sessionId).toBe("sess-teams");
+    expect(call.sessionId).toBe("sess-slack");
   });
 
-  test("agent accepts channel aliases (imsg/teams)", async () => {
+  test("agent accepts channel aliases (slk)", async () => {
     const registry = createRegistry([
       {
-        pluginId: "msteams",
+        pluginId: "slack",
         source: "test",
-        plugin: createMSTeamsPlugin({ aliases: ["teams"] }),
+        plugin: createSlackPlugin({ aliases: ["slk"] }),
       },
     ]);
     registryState.registry = registry;
     setActivePluginRegistry(registry);
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
-    testState.sessionStorePath = path.join(dir, "sessions.json");
-    await writeSessionStore({
-      entries: {
-        main: {
-          sessionId: "sess-alias",
-          updatedAt: Date.now(),
-          lastChannel: "imessage",
-          lastTo: "chat_id:123",
-        },
-      },
-    });
-    const resIMessage = await rpcReq(ws, "agent", {
-      message: "hi",
-      sessionKey: "main",
-      channel: "imsg",
-      deliver: true,
-      idempotencyKey: "idem-agent-imsg",
-    });
-    expect(resIMessage.ok).toBe(true);
 
-    const resTeams = await rpcReq(ws, "agent", {
+    const resSlk = await rpcReq(ws, "agent", {
       message: "hi",
       sessionKey: "main",
-      channel: "teams",
-      to: "conversation:teams-abc",
+      channel: "slk",
+      to: "channel:slack-abc",
       deliver: false,
-      idempotencyKey: "idem-agent-teams",
+      idempotencyKey: "idem-agent-slk",
     });
-    expect(resTeams.ok).toBe(true);
+    expect(resSlk.ok).toBe(true);
 
     const spy = vi.mocked(agentCommand);
-    const lastIMessageCall = spy.mock.calls.at(-2)?.[0] as Record<string, unknown>;
-    expectChannels(lastIMessageCall, "imessage");
-    expect(lastIMessageCall.to).toBe("chat_id:123");
-
-    const lastTeamsCall = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expectChannels(lastTeamsCall, "msteams");
-    expect(lastTeamsCall.to).toBe("conversation:teams-abc");
+    const lastSlkCall = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expectChannels(lastSlkCall, "slack");
+    expect(lastSlkCall.to).toBe("channel:slack-abc");
   });
 
   test("agent rejects unknown channel", async () => {

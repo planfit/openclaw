@@ -124,11 +124,11 @@ const defaultRegistry = createRegistry([
     plugin: telegramPlugin,
   },
   {
-    pluginId: "signal",
+    pluginId: "slack",
     source: "test",
     plugin: createStubChannelPlugin({
-      id: "signal",
-      label: "Signal",
+      id: "slack",
+      label: "Slack",
       summary: { lastProbeAt: null },
     }),
   },
@@ -173,15 +173,15 @@ describe("gateway server channels", () => {
     }>(ws, "channels.status", { probe: false, timeoutMs: 2000 });
     expect(res.ok).toBe(true);
     const telegram = res.payload?.channels?.telegram;
-    const signal = res.payload?.channels?.signal;
+    const slack = res.payload?.channels?.slack;
     expect(res.payload?.channels?.whatsapp).toBeTruthy();
     expect(telegram?.configured).toBe(false);
     expect(telegram?.tokenSource).toBe("none");
     expect(telegram?.probe).toBeUndefined();
     expect(telegram?.lastProbeAt).toBeNull();
-    expect(signal?.configured).toBe(false);
-    expect(signal?.probe).toBeUndefined();
-    expect(signal?.lastProbeAt).toBeNull();
+    expect(slack?.configured).toBe(false);
+    expect(slack?.probe).toBeUndefined();
+    expect(slack?.lastProbeAt).toBeNull();
   });
 
   test("channels.logout reports no session when missing", async () => {

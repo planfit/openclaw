@@ -109,26 +109,4 @@ describe("channelsCapabilitiesCommand", () => {
     expect(fetchSlackScopes).toHaveBeenCalledWith("xoxb-bot", expect.any(Number));
     expect(fetchSlackScopes).toHaveBeenCalledWith("xoxp-user", expect.any(Number));
   });
-
-  it("prints Teams Graph permission hints when present", async () => {
-    const plugin = buildPlugin({
-      id: "msteams",
-      probe: {
-        ok: true,
-        appId: "app-id",
-        graph: {
-          ok: true,
-          roles: ["ChannelMessage.Read.All", "Files.Read.All"],
-        },
-      },
-    });
-    vi.mocked(listChannelPlugins).mockReturnValue([plugin]);
-    vi.mocked(getChannelPlugin).mockReturnValue(plugin);
-
-    await channelsCapabilitiesCommand({ channel: "msteams" }, runtime);
-
-    const output = logs.join("\n");
-    expect(output).toContain("ChannelMessage.Read.All (channel history)");
-    expect(output).toContain("Files.Read.All (files (OneDrive))");
-  });
 });

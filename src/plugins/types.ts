@@ -139,7 +139,7 @@ export type OpenClawPluginGatewayMethod = {
 export type PluginCommandContext = {
   /** The sender's identifier (e.g., Telegram user ID) */
   senderId?: string;
-  /** The channel/surface (e.g., "telegram", "discord") */
+  /** The channel/surface (e.g., "telegram", "slack") */
   channel: string;
   /** Provider channel id (e.g., "telegram") */
   channelId?: ChannelId;

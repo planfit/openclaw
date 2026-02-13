@@ -90,19 +90,16 @@ describe("gateway hooks helpers", () => {
     setActivePluginRegistry(
       createTestRegistry([
         {
-          pluginId: "msteams",
+          pluginId: "slack",
           source: "test",
-          plugin: createMSTeamsPlugin({ aliases: ["teams"] }),
+          plugin: createSlackPlugin({ aliases: ["slk"] }),
         },
       ]),
     );
-    const teams = normalizeAgentPayload(
-      { message: "yo", channel: "teams" },
-      { idFactory: () => "x" },
-    );
-    expect(teams.ok).toBe(true);
-    if (teams.ok) {
-      expect(teams.value.channel).toBe("msteams");
+    const slk = normalizeAgentPayload({ message: "yo", channel: "slk" }, { idFactory: () => "x" });
+    expect(slk.ok).toBe(true);
+    if (slk.ok) {
+      expect(slk.value.channel).toBe("slack");
     }
 
     const bad = normalizeAgentPayload({ message: "yo", channel: "sms" });
@@ -112,14 +109,14 @@ describe("gateway hooks helpers", () => {
 
 const emptyRegistry = createTestRegistry([]);
 
-const createMSTeamsPlugin = (params: { aliases?: string[] }): ChannelPlugin => ({
-  id: "msteams",
+const createSlackPlugin = (params: { aliases?: string[] }): ChannelPlugin => ({
+  id: "slack",
   meta: {
-    id: "msteams",
-    label: "Microsoft Teams",
-    selectionLabel: "Microsoft Teams (Bot Framework)",
-    docsPath: "/channels/msteams",
-    blurb: "Bot Framework; enterprise support.",
+    id: "slack",
+    label: "Slack",
+    selectionLabel: "Slack (Bot)",
+    docsPath: "/channels/slack",
+    blurb: "Slack bot support.",
     aliases: params.aliases,
   },
   capabilities: { chatTypes: ["direct"] },

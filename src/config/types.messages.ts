@@ -90,7 +90,7 @@ export type NativeCommandsSetting = boolean | "auto";
 
 /**
  * Per-provider allowlist for command authorization.
- * Keys are channel IDs (e.g., "discord", "whatsapp") or "*" for global default.
+ * Keys are channel IDs (e.g., "telegram", "whatsapp") or "*" for global default.
  * Values are arrays of sender IDs allowed to use commands on that channel.
  */
 export type CommandAllowFrom = Record<string, Array<string | number>>;

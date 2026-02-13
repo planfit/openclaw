@@ -151,19 +151,9 @@ const defaultRegistry = createRegistry([
     plugin: createStubChannelPlugin({ id: "telegram", label: "Telegram" }),
   },
   {
-    pluginId: "discord",
-    source: "test",
-    plugin: createStubChannelPlugin({ id: "discord", label: "Discord" }),
-  },
-  {
     pluginId: "slack",
     source: "test",
     plugin: createStubChannelPlugin({ id: "slack", label: "Slack" }),
-  },
-  {
-    pluginId: "signal",
-    source: "test",
-    plugin: createStubChannelPlugin({ id: "signal", label: "Signal" }),
   },
 ]);
 
@@ -555,38 +545,6 @@ describe("gateway server agent", () => {
     expect(call.sessionId).toBe("sess-main");
   });
 
-  test("agent routes main last-channel discord", async () => {
-    setRegistry(defaultRegistry);
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
-    testState.sessionStorePath = path.join(dir, "sessions.json");
-    await writeSessionStore({
-      entries: {
-        main: {
-          sessionId: "sess-discord",
-          updatedAt: Date.now(),
-          lastChannel: "discord",
-          lastTo: "channel:discord-123",
-        },
-      },
-    });
-    const res = await rpcReq(ws, "agent", {
-      message: "hi",
-      sessionKey: "main",
-      channel: "last",
-      deliver: true,
-      idempotencyKey: "idem-agent-last-discord",
-    });
-    expect(res.ok).toBe(true);
-
-    const spy = vi.mocked(agentCommand);
-    const call = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expectChannels(call, "discord");
-    expect(call.to).toBe("channel:discord-123");
-    expect(call.deliver).toBe(true);
-    expect(call.bestEffortDeliver).toBe(true);
-    expect(call.sessionId).toBe("sess-discord");
-  });
-
   test("agent routes main last-channel slack", async () => {
     setRegistry(defaultRegistry);
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
@@ -617,37 +575,5 @@ describe("gateway server agent", () => {
     expect(call.deliver).toBe(true);
     expect(call.bestEffortDeliver).toBe(true);
     expect(call.sessionId).toBe("sess-slack");
-  });
-
-  test("agent routes main last-channel signal", async () => {
-    setRegistry(defaultRegistry);
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-gw-"));
-    testState.sessionStorePath = path.join(dir, "sessions.json");
-    await writeSessionStore({
-      entries: {
-        main: {
-          sessionId: "sess-signal",
-          updatedAt: Date.now(),
-          lastChannel: "signal",
-          lastTo: "+15551234567",
-        },
-      },
-    });
-    const res = await rpcReq(ws, "agent", {
-      message: "hi",
-      sessionKey: "main",
-      channel: "last",
-      deliver: true,
-      idempotencyKey: "idem-agent-last-signal",
-    });
-    expect(res.ok).toBe(true);
-
-    const spy = vi.mocked(agentCommand);
-    const call = spy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
-    expectChannels(call, "signal");
-    expect(call.to).toBe("+15551234567");
-    expect(call.deliver).toBe(true);
-    expect(call.bestEffortDeliver).toBe(true);
-    expect(call.sessionId).toBe("sess-signal");
   });
 });

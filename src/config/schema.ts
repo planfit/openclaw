@@ -637,7 +637,7 @@ const FIELD_HELP: Record<string, string> = {
   "commands.ownerAllowFrom":
     "Explicit owner allowlist for owner-only tools/commands. Use channel-native IDs (optionally prefixed like \"whatsapp:+15551234567\"). '*' is ignored.",
   "commands.allowFrom":
-    'Per-provider allowlist restricting who can use slash commands. If set, overrides the channel\'s allowFrom for command authorization. Use \'*\' key for global default; provider-specific keys (e.g. \'discord\') override the global. Example: { "*": ["user1"], "discord": ["user:123"] }.',
+    'Per-provider allowlist restricting who can use slash commands. If set, overrides the channel\'s allowFrom for command authorization. Use \'*\' key for global default; provider-specific keys (e.g. \'telegram\') override the global. Example: { "*": ["user1"], "telegram": ["user:123"] }.',
   "session.dmScope":
     'DM session scoping: "main" keeps continuity; "per-peer", "per-channel-peer", or "per-account-channel-peer" isolates DM history (recommended for shared inboxes/multi-account).',
   "session.identityLinks":
