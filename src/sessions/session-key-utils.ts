@@ -81,3 +81,21 @@ export function resolveThreadParentSessionKey(
   const parent = raw.slice(0, idx).trim();
   return parent ? parent : null;
 }
+
+export function extractThreadIdFromSessionKey(
+  sessionKey: string | undefined | null,
+): string | null {
+  const raw = (sessionKey ?? "").trim();
+  if (!raw) {
+    return null;
+  }
+  const normalized = raw.toLowerCase();
+  for (const marker of THREAD_SESSION_MARKERS) {
+    const idx = normalized.lastIndexOf(marker);
+    if (idx > 0) {
+      const threadId = raw.slice(idx + marker.length).trim();
+      return threadId || null;
+    }
+  }
+  return null;
+}

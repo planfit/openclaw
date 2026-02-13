@@ -39,6 +39,7 @@ import { getQueueSize } from "../process/command-queue.js";
 import { CommandLane } from "../process/lanes.js";
 import { normalizeAgentId, toAgentStoreSessionKey } from "../routing/session-key.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
+import { extractThreadIdFromSessionKey } from "../sessions/session-key-utils.js";
 import { formatErrorMessage } from "./errors.js";
 import { emitHeartbeatEvent, resolveIndicatorType } from "./heartbeat-events.js";
 import { resolveHeartbeatVisibility } from "./heartbeat-visibility.js";
@@ -564,7 +565,10 @@ export async function runHeartbeatOnce(opts: {
     opts.sessionKey,
   );
   const previousUpdatedAt = entry?.updatedAt;
-  const delivery = resolveHeartbeatDeliveryTarget({ cfg, entry, heartbeat });
+  const rawDelivery = resolveHeartbeatDeliveryTarget({ cfg, entry, heartbeat });
+  const keyThreadId =
+    rawDelivery.threadId == null ? extractThreadIdFromSessionKey(sessionKey) : null;
+  const delivery = keyThreadId != null ? { ...rawDelivery, threadId: keyThreadId } : rawDelivery;
   const heartbeatAccountId = heartbeat?.accountId?.trim();
   if (delivery.reason === "unknown-account") {
     log.warn("heartbeat: unknown accountId", {
