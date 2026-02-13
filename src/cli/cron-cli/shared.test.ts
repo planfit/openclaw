@@ -1,7 +1,35 @@
 import { describe, expect, it } from "vitest";
 import type { CronJob } from "../../cron/types.js";
 import type { RuntimeEnv } from "../../runtime.js";
-import { printCronList } from "./shared.js";
+import { parseAt, printCronList } from "./shared.js";
+
+describe("parseAt", () => {
+  it('parses "+2m" as ~2 minutes from now', () => {
+    const before = Date.now();
+    const result = parseAt("+2m");
+    const after = Date.now();
+    expect(result).not.toBeNull();
+    const ms = new Date(result!).getTime();
+    expect(ms).toBeGreaterThanOrEqual(before + 2 * 60_000);
+    expect(ms).toBeLessThanOrEqual(after + 2 * 60_000);
+  });
+
+  it('parses "+1h" as ~1 hour from now', () => {
+    const before = Date.now();
+    const result = parseAt("+1h");
+    expect(result).not.toBeNull();
+    const ms = new Date(result!).getTime();
+    expect(ms).toBeGreaterThanOrEqual(before + 3_600_000);
+  });
+
+  it('parses "20m" (no + prefix) as ~20 minutes from now', () => {
+    const before = Date.now();
+    const result = parseAt("20m");
+    expect(result).not.toBeNull();
+    const ms = new Date(result!).getTime();
+    expect(ms).toBeGreaterThanOrEqual(before + 20 * 60_000);
+  });
+});
 
 function createRuntimeLogCapture(): { logs: string[]; runtime: RuntimeEnv } {
   const logs: string[] = [];
