@@ -306,6 +306,7 @@ describe("POST /tools/invoke", () => {
           tools: { allow: ["sessions_spawn"] },
         },
       ],
+      // oxlint-disable-next-line typescript/no-explicit-any
     } as any;
 
     const port = await getFreePort();
@@ -329,6 +330,7 @@ describe("POST /tools/invoke", () => {
   it("denies sessions_send via HTTP gateway", async () => {
     testState.agentsConfig = {
       list: [{ id: "main", tools: { allow: ["sessions_send"] } }],
+      // oxlint-disable-next-line typescript/no-explicit-any
     } as any;
 
     const port = await getFreePort();
@@ -348,6 +350,7 @@ describe("POST /tools/invoke", () => {
   it("denies gateway tool via HTTP", async () => {
     testState.agentsConfig = {
       list: [{ id: "main", tools: { allow: ["gateway"] } }],
+      // oxlint-disable-next-line typescript/no-explicit-any
     } as any;
 
     const port = await getFreePort();
