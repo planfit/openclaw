@@ -215,6 +215,10 @@ export async function dispatchReplyFromConfig(params: {
     isRoutableChannel(originatingChannel) && originatingTo && originatingChannel !== currentSurface;
   const ttsChannel = shouldRouteToOriginating ? originatingChannel : currentSurface;
 
+  logVerbose(
+    `dispatch-from-config: routing decision — originating=${originatingChannel ?? "none"}, surface=${currentSurface ?? "none"}, routeToOriginating=${String(!!shouldRouteToOriginating)}`,
+  );
+
   // Resolve humanDelay config once for both block and final pacing.
   const agentId = resolveSessionAgentId({ sessionKey, config: cfg });
   const resolvedHumanDelay = agentId ? resolveHumanDelayConfig(cfg, agentId) : undefined;

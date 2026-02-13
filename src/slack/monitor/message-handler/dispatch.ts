@@ -109,7 +109,7 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
 
   const { dispatcher, replyOptions, markDispatchIdle } = createReplyDispatcherWithTyping({
     ...prefixOptions,
-    humanDelay: resolveHumanDelayConfig(cfg, route.agentId),
+    humanDelay: resolveHumanDelayConfig(cfg, route.agentId) ?? { mode: "natural" },
     deliver: async (payload) => {
       const replyThreadTs = replyPlan.nextThreadTs();
       await deliverReplies({

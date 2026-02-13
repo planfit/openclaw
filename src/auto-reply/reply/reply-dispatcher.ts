@@ -2,6 +2,7 @@ import type { HumanDelayConfig } from "../../config/types.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { ResponsePrefixContext } from "./response-prefix-template.js";
 import type { TypingController } from "./typing.js";
+import { logVerbose } from "../../globals.js";
 import { sleep } from "../../utils.js";
 import { normalizeReplyPayload, type NormalizeReplySkipReason } from "./normalize-reply.js";
 
@@ -137,6 +138,9 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
         if (shouldDelay) {
           const delayMs = getHumanDelay(options.humanDelay);
           if (delayMs > 0) {
+            logVerbose(
+              `reply-dispatcher: block pacing delay ${delayMs}ms (mode=${options.humanDelay?.mode ?? "off"})`,
+            );
             await sleep(delayMs);
           }
         }
