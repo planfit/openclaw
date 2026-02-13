@@ -172,7 +172,6 @@ export function createSessionsSpawnTool(
           cleanup,
           sandbox,
           expectsCompletionMessage: true,
-          enableProgress: params.progress !== false,
           attachments,
           attachMountPath:
             params.attachAs && typeof params.attachAs === "object"

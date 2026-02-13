@@ -23,10 +23,14 @@ export type AgentRunContext = {
 const seqByRun = new Map<string, number>();
 const listeners = new Set<(evt: AgentEventPayload) => void>();
 const runContextById = new Map<string, AgentRunContext>();
+const runIdBySessionKey = new Map<string, string>();
 
 export function registerAgentRunContext(runId: string, context: AgentRunContext) {
   if (!runId) {
     return;
+  }
+  if (context.sessionKey) {
+    runIdBySessionKey.set(context.sessionKey, runId);
   }
   const existing = runContextById.get(runId);
   if (!existing) {
@@ -55,8 +59,13 @@ export function clearAgentRunContext(runId: string) {
   runContextById.delete(runId);
 }
 
+export function resolveRunIdBySessionKey(sessionKey: string): string | undefined {
+  return runIdBySessionKey.get(sessionKey);
+}
+
 export function resetAgentRunContextForTest() {
   runContextById.clear();
+  runIdBySessionKey.clear();
 }
 
 export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
