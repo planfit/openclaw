@@ -294,4 +294,28 @@ describe("tool display details", () => {
     expect(nodeCheckDetail).toContain("check js syntax for /tmp/test.js");
     expect(nodeShortCheckDetail).toContain("check js syntax for /tmp/test.js");
   });
+
+  it("resolves file_path for Read tool (SDK format)", () => {
+    const display = resolveToolDisplay({
+      name: "Read",
+      args: { file_path: "/workspace/src/foo.ts" },
+    });
+    expect(display.detail).toContain("/workspace/src/foo.ts");
+  });
+
+  it("resolves file_path for Write tool (SDK format)", () => {
+    const display = resolveToolDisplay({
+      name: "Write",
+      args: { file_path: "/workspace/src/bar.ts" },
+    });
+    expect(display.detail).toContain("/workspace/src/bar.ts");
+  });
+
+  it("prefers path over file_path when both present", () => {
+    const display = resolveToolDisplay({
+      name: "Read",
+      args: { path: "short.ts", file_path: "/long/path/short.ts" },
+    });
+    expect(display.detail).toBe("short.ts");
+  });
 });
