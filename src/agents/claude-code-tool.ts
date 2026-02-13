@@ -72,6 +72,28 @@ export function createClaudeCodeTool(defaults?: {
         // buildCanUseTool preserved for future SDK versions that fix this.
         // canUseTool: isPlan ? undefined : buildCanUseTool(defaults?.permissions, onUpdate),
         onProgress: (evt: SDKProgressEvent) => {
+          // Forward internal SDK tool events to global event bus for subagent-progress.
+          if (evt.phase === "tool_use") {
+            const sessionKey = defaults?.permissions?.sessionKey;
+            if (sessionKey) {
+              const runId = resolveRunIdBySessionKey(sessionKey);
+              if (runId) {
+                for (const tool of evt.tools) {
+                  emitAgentEvent({
+                    runId,
+                    stream: "tool",
+                    data: {
+                      phase: "start",
+                      name: tool.name,
+                      args: tool.input,
+                      parentTool: "claude_code",
+                    },
+                  });
+                }
+              }
+            }
+          }
+
           if (!onUpdate) {
             return;
           }
