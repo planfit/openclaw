@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "../../config/config.js";
+import type { HumanDelayConfig } from "../../config/types.base.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
@@ -216,7 +217,13 @@ export async function dispatchReplyFromConfig(params: {
 
   // Resolve humanDelay config once for both block and final pacing.
   const agentId = resolveSessionAgentId({ sessionKey, config: cfg });
-  const humanDelayConfig = agentId ? resolveHumanDelayConfig(cfg, agentId) : undefined;
+  const resolvedHumanDelay = agentId ? resolveHumanDelayConfig(cfg, agentId) : undefined;
+  // Default to "natural" pacing for external channel routing when no config is set.
+  // External channels (Slack/Telegram) need pacing to avoid burst delivery, unlike
+  // web UI which has its own dispatcher-level pacing.
+  const humanDelayConfig: HumanDelayConfig | undefined = shouldRouteToOriginating
+    ? (resolvedHumanDelay ?? { mode: "natural" })
+    : resolvedHumanDelay;
   let routedBlockCount = 0;
 
   /**
@@ -244,6 +251,9 @@ export async function dispatchReplyFromConfig(params: {
     if (routedBlockCount > 0) {
       const delayMs = getHumanDelay(humanDelayConfig);
       if (delayMs > 0) {
+        logVerbose(
+          `dispatch-from-config: block pacing delay ${delayMs}ms (block #${routedBlockCount + 1})`,
+        );
         await sleep(delayMs);
       }
     }
@@ -386,6 +396,9 @@ export async function dispatchReplyFromConfig(params: {
         if (routedFinalCount > 0) {
           const delayMs = getHumanDelay(humanDelayConfig);
           if (delayMs > 0) {
+            logVerbose(
+              `dispatch-from-config: final pacing delay ${delayMs}ms (msg #${routedFinalCount + 1})`,
+            );
             await sleep(delayMs);
           }
         }
