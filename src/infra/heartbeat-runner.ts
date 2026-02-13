@@ -830,25 +830,31 @@ export async function runHeartbeatOnce(opts: {
       sessionKey,
       fallbackUsed: keyThreadId != null,
     });
-    await deliverOutboundPayloads({
-      cfg,
-      channel: delivery.channel,
-      to: delivery.to,
-      accountId: deliveryAccountId,
-      threadId: delivery.threadId,
-      payloads: [
-        ...reasoningPayloads,
-        ...(shouldSkipMain
-          ? []
-          : [
-              {
-                text: normalized.text,
-                mediaUrls,
-              },
-            ]),
-      ],
-      deps: opts.deps,
-    });
+    try {
+      await deliverOutboundPayloads({
+        cfg,
+        channel: delivery.channel,
+        to: delivery.to,
+        accountId: deliveryAccountId,
+        threadId: delivery.threadId,
+        payloads: [
+          ...reasoningPayloads,
+          ...(shouldSkipMain
+            ? []
+            : [
+                {
+                  text: normalized.text,
+                  mediaUrls,
+                },
+              ]),
+        ],
+        deps: opts.deps,
+      });
+      log.info("heartbeat: delivered ok", { threadId: delivery.threadId ?? null });
+    } catch (deliveryErr) {
+      log.warn("heartbeat: delivery failed", { error: String(deliveryErr) });
+      throw deliveryErr;
+    }
 
     // Record last delivered heartbeat payload for dedupe.
     if (!shouldSkipMain && normalized.text.trim()) {

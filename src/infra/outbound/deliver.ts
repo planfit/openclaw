@@ -16,7 +16,7 @@ import {
   appendAssistantMessageToSessionTranscript,
   resolveMirroredTranscriptText,
 } from "../../config/sessions.js";
-import { logDebug } from "../../logger.js";
+import { logInfo } from "../../logger.js";
 import { throwIfAborted } from "./abort.js";
 import { normalizeReplyPayloadsForDelivery } from "./payloads.js";
 
@@ -175,7 +175,7 @@ export async function deliverOutboundPayloads(params: {
   const deps = params.deps;
   const abortSignal = params.abortSignal;
   const results: OutboundDeliveryResult[] = [];
-  logDebug(
+  logInfo(
     `[outbound:deliver] channel=${channel} to=${to} threadId=${String(params.threadId ?? "undefined")} replyToId=${String(params.replyToId ?? "undefined")}`,
   );
   const handler = await createChannelHandler({

@@ -8,7 +8,7 @@ import {
 import { loadConfig } from "../config/config.js";
 import { resolveMarkdownTableMode } from "../config/markdown-tables.js";
 import { logVerbose } from "../globals.js";
-import { logDebug } from "../logger.js";
+import { logInfo } from "../logger.js";
 import { loadWebMedia } from "../media/load-web-media.js";
 import { resolveSlackAccount } from "./accounts.js";
 import { createSlackWebClient } from "./client.js";
@@ -148,7 +148,7 @@ export async function sendMessageSlack(
   const client = opts.client ?? createSlackWebClient(token);
   const recipient = parseRecipient(to);
   const { channelId } = await resolveChannelId(client, recipient);
-  logDebug(`[slack:send] channelId=${channelId} threadTs=${String(opts.threadTs ?? "undefined")}`);
+  logInfo(`[slack:send] channelId=${channelId} threadTs=${String(opts.threadTs ?? "undefined")}`);
   const textLimit = resolveTextChunkLimit(cfg, "slack", account.accountId);
   const chunkLimit = Math.min(textLimit, SLACK_TEXT_LIMIT);
   const tableMode = resolveMarkdownTableMode({

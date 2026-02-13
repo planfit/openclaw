@@ -48,7 +48,9 @@ export async function deliverReplies(params: {
         });
       }
     }
-    params.runtime.log?.(`delivered reply to ${params.target}`);
+    params.runtime.log?.(
+      `delivered reply to ${params.target}${threadTs ? ` thread:${threadTs}` : ""}`,
+    );
   }
 }
 
