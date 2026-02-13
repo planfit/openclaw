@@ -136,6 +136,10 @@ describe("runReplyAgent memory flush", () => {
 
     await seedSessionStore({ storePath, sessionKey, entry: sessionEntry });
 
+    // Create a real session file so fs.copyFile in the flush isolation logic works
+    const sessionFile = path.join(tmp, "session.jsonl");
+    await fs.writeFile(sessionFile, "", "utf-8");
+
     const calls: Array<EmbeddedRunParams> = [];
     runEmbeddedPiAgentMock.mockImplementation(async (params: EmbeddedRunParams) => {
       calls.push(params);
@@ -163,7 +167,7 @@ describe("runReplyAgent memory flush", () => {
           },
         },
       },
-      runOverrides: { extraSystemPrompt: "extra system" },
+      runOverrides: { extraSystemPrompt: "extra system", sessionFile },
     });
 
     await runReplyAgent({

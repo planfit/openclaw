@@ -122,7 +122,7 @@ function createBaseRun(params: {
 }
 
 describe("runReplyAgent memory flush", () => {
-  it("increments compaction count when flush compaction completes", async () => {
+  it("does not increment main session compaction count when flush compaction completes (isolated session)", async () => {
     runEmbeddedPiAgentMock.mockReset();
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-flush-"));
     const storePath = path.join(tmp, "sessions.json");
@@ -135,6 +135,10 @@ describe("runReplyAgent memory flush", () => {
     };
 
     await seedSessionStore({ storePath, sessionKey, entry: sessionEntry });
+
+    // Create a real session file so fs.copyFile in the flush isolation logic works
+    const sessionFile = path.join(tmp, "session.jsonl");
+    await fs.writeFile(sessionFile, "", "utf-8");
 
     runEmbeddedPiAgentMock.mockImplementation(async (params: EmbeddedRunParams) => {
       if (params.prompt === DEFAULT_MEMORY_FLUSH_PROMPT) {
@@ -153,6 +157,7 @@ describe("runReplyAgent memory flush", () => {
     const { typing, sessionCtx, resolvedQueue, followupRun } = createBaseRun({
       storePath,
       sessionEntry,
+      runOverrides: { sessionFile },
     });
 
     await runReplyAgent({
@@ -181,7 +186,8 @@ describe("runReplyAgent memory flush", () => {
     });
 
     const stored = JSON.parse(await fs.readFile(storePath, "utf-8"));
-    expect(stored[sessionKey].compactionCount).toBe(2);
-    expect(stored[sessionKey].memoryFlushCompactionCount).toBe(2);
+    // Flush runs in an isolated temp session, so main compactionCount stays unchanged
+    expect(stored[sessionKey].compactionCount).toBe(1);
+    expect(stored[sessionKey].memoryFlushCompactionCount).toBe(1);
   });
 });

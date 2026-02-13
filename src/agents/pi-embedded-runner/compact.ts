@@ -383,6 +383,7 @@ export async function compactEmbeddedPiSessionDirect(
         provider,
         modelId,
         model,
+        workspaceDir: effectiveWorkspace,
       });
 
       const { builtInTools, customTools } = splitSdkTools({

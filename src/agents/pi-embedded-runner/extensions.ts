@@ -77,6 +77,7 @@ export function buildEmbeddedExtensionPaths(params: {
   provider: string;
   modelId: string;
   model: Model<Api> | undefined;
+  workspaceDir?: string;
 }): string[] {
   const paths: string[] = [];
   if (resolveCompactionMode(params.cfg) === "safeguard") {
@@ -91,6 +92,7 @@ export function buildEmbeddedExtensionPaths(params: {
     setCompactionSafeguardRuntime(params.sessionManager, {
       maxHistoryShare: compactionCfg?.maxHistoryShare,
       contextWindowTokens: contextWindowInfo.tokens,
+      workspaceDir: params.workspaceDir,
     });
     paths.push(resolvePiExtensionPath("compaction-safeguard"));
   }

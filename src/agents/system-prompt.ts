@@ -51,6 +51,7 @@ function buildMemorySection(params: {
   const lines = [
     "## Memory Recall",
     "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search on MEMORY.md + memory/*.md; then use memory_get to pull only the needed lines. If low confidence after search, say you checked.",
+    "After context compaction, always check memory files to restore detailed context that may have been summarized away.",
   ];
   if (params.citationsMode === "off") {
     lines.push(

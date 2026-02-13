@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.js";
@@ -22,8 +23,6 @@ import {
   resolveMemoryFlushSettings,
   shouldRunMemoryFlush,
 } from "./memory-flush.js";
-import { incrementCompactionCount } from "./session-updates.js";
-
 export async function runMemoryFlushIfNeeded(params: {
   cfg: OpenClawConfig;
   followupRun: FollowupRun;
@@ -89,14 +88,17 @@ export async function runMemoryFlushIfNeeded(params: {
       verboseLevel: params.resolvedVerboseLevel,
     });
   }
-  let memoryCompactionCompleted = false;
   const flushSystemPrompt = [
     params.followupRun.run.extraSystemPrompt,
     memoryFlushSettings.systemPrompt,
   ]
     .filter(Boolean)
     .join("\n\n");
+  // Isolate flush into a temporary session file so flush messages don't
+  // pollute the main session and monopolize keepRecentTokens during compaction.
+  const tempSessionFile = `${params.followupRun.run.sessionFile}.memflush.tmp`;
   try {
+    await fs.copyFile(params.followupRun.run.sessionFile, tempSessionFile);
     await runWithModelFallback({
       cfg: params.followupRun.run.config,
       provider: params.followupRun.run.provider,
@@ -129,7 +131,7 @@ export async function runMemoryFlushIfNeeded(params: {
           senderName: params.sessionCtx.SenderName?.trim() || undefined,
           senderUsername: params.sessionCtx.SenderUsername?.trim() || undefined,
           senderE164: params.sessionCtx.SenderE164?.trim() || undefined,
-          sessionFile: params.followupRun.run.sessionFile,
+          sessionFile: tempSessionFile,
           workspaceDir: params.followupRun.run.workspaceDir,
           agentDir: params.followupRun.run.agentDir,
           config: params.followupRun.run.config,
@@ -159,7 +161,6 @@ export async function runMemoryFlushIfNeeded(params: {
                 await params.onCompactionStatus({ text: "🧹 Memory compaction in progress…" });
               }
               if (phase === "end" && !willRetry) {
-                memoryCompactionCompleted = true;
                 if (params.onCompactionStatus) {
                   await params.onCompactionStatus({ text: "🧹 Memory compaction complete." });
                 }
@@ -169,21 +170,12 @@ export async function runMemoryFlushIfNeeded(params: {
         });
       },
     });
-    let memoryFlushCompactionCount =
+    // Compaction in the temp session does not affect the main session's count.
+    // Use the current compactionCount as-is for memoryFlushCompactionCount.
+    const memoryFlushCompactionCount =
       activeSessionEntry?.compactionCount ??
       (params.sessionKey ? activeSessionStore?.[params.sessionKey]?.compactionCount : 0) ??
       0;
-    if (memoryCompactionCompleted) {
-      const nextCount = await incrementCompactionCount({
-        sessionEntry: activeSessionEntry,
-        sessionStore: activeSessionStore,
-        sessionKey: params.sessionKey,
-        storePath: params.storePath,
-      });
-      if (typeof nextCount === "number") {
-        memoryFlushCompactionCount = nextCount;
-      }
-    }
     if (params.storePath && params.sessionKey) {
       try {
         const updatedEntry = await updateSessionStoreEntry({
@@ -203,6 +195,8 @@ export async function runMemoryFlushIfNeeded(params: {
     }
   } catch (err) {
     logVerbose(`memory flush run failed: ${String(err)}`);
+  } finally {
+    await fs.unlink(tempSessionFile).catch(() => {});
   }
 
   return activeSessionEntry;

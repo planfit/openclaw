@@ -1,5 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ExtensionAPI, FileOperations } from "@mariozechner/pi-coding-agent";
+import path from "node:path";
+import { listMemoryFiles } from "../../memory/internal.js";
 import {
   BASE_CHUNK_RATIO,
   MIN_CHUNK_RATIO,
@@ -168,6 +170,28 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
       ...preparation.turnPrefixMessages,
     ]);
     const toolFailureSection = formatToolFailuresSection(toolFailures);
+
+    // Resolve memory files for enriched summary
+    const runtime = getCompactionSafeguardRuntime(ctx.sessionManager);
+    let memoryFiles: string[] = [];
+    if (runtime?.workspaceDir) {
+      try {
+        const absFiles = await listMemoryFiles(runtime.workspaceDir);
+        memoryFiles = absFiles.map((f) => path.relative(runtime.workspaceDir!, f));
+      } catch {
+        // Non-critical: proceed without memory file list
+      }
+    }
+
+    const memoryAwareInstructions = [
+      customInstructions,
+      memoryFiles.length > 0
+        ? "Detailed context has been saved to memory files. Keep this summary concise and high-level (focus on Goal, current Progress, and Next Steps). Omit verbose details that can be retrieved from memory."
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     const fallbackSummary = `${FALLBACK_SUMMARY}${toolFailureSection}${fileOpsSummary}`;
 
     const model = ctx.model;
@@ -253,7 +277,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
                   reserveTokens: Math.max(1, Math.floor(preparation.settings.reserveTokens)),
                   maxChunkTokens: droppedMaxChunkTokens,
                   contextWindow: contextWindowTokens,
-                  customInstructions,
+                  customInstructions: memoryAwareInstructions,
                   previousSummary: preparation.previousSummary,
                 });
               } catch (droppedError) {
@@ -286,7 +310,7 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
         reserveTokens,
         maxChunkTokens,
         contextWindow: contextWindowTokens,
-        customInstructions,
+        customInstructions: memoryAwareInstructions,
         previousSummary: effectivePreviousSummary,
       });
 
@@ -304,6 +328,11 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           previousSummary: undefined,
         });
         summary = `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${prefixSummary}`;
+      }
+
+      if (memoryFiles.length > 0) {
+        const memoryFileList = memoryFiles.map((f) => `- ${f}`).join("\n");
+        summary += `\n\n## Available Memory\nThe following memory files contain detailed context from earlier in this session:\n${memoryFileList}\nUse memory_search / memory_get to retrieve specific details when needed.`;
       }
 
       summary += toolFailureSection;

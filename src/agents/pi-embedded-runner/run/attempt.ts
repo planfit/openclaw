@@ -442,6 +442,7 @@ export async function runEmbeddedAttempt(
         provider: params.provider,
         modelId: params.modelId,
         model: params.model,
+        workspaceDir: effectiveWorkspace,
       });
 
       const { builtInTools, customTools } = splitSdkTools({
