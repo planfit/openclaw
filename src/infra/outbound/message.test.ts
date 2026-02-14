@@ -99,6 +99,56 @@ describe("sendPoll channel normalization", () => {
   });
 });
 
+describe("gateway url override hardening", () => {
+  beforeEach(() => {
+    callGatewayMock.mockReset();
+    void setRegistry(emptyRegistry);
+  });
+
+  afterEach(() => {
+    void setRegistry(emptyRegistry);
+  });
+
+  it("drops gateway url overrides in backend mode (SSRF hardening)", async () => {
+    void setRegistry(
+      createTestRegistry([
+        {
+          pluginId: "mattermost",
+          source: "test",
+          plugin: {
+            ...createMattermostLikePlugin({ onSendText: () => {} }),
+            outbound: { deliveryMode: "gateway" },
+          },
+        },
+      ]),
+    );
+
+    callGatewayMock.mockResolvedValueOnce({ messageId: "m1" });
+    await sendMessage({
+      cfg: {},
+      to: "channel:town-square",
+      content: "hi",
+      channel: "mattermost",
+      gateway: {
+        url: "ws://169.254.169.254:80/latest/meta-data/",
+        token: "t",
+        timeoutMs: 5000,
+        clientName: GATEWAY_CLIENT_NAMES.GATEWAY_CLIENT,
+        clientDisplayName: "agent",
+        mode: GATEWAY_CLIENT_MODES.BACKEND,
+      },
+    });
+
+    expect(callGatewayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: undefined,
+        token: "t",
+        timeoutMs: 5000,
+      }),
+    );
+  });
+});
+
 const emptyRegistry = createTestRegistry([]);
 
 const createMSTeamsOutbound = (opts?: { includePoll?: boolean }): ChannelOutboundAdapter => ({
