@@ -13,6 +13,8 @@ import {
   resolveSessionDeliveryTarget,
 } from "../../infra/outbound/targets.js";
 import { logDebug } from "../../logger.js";
+import { buildChannelAccountBindings } from "../../routing/bindings.js";
+import { normalizeAgentId } from "../../routing/session-key.js";
 
 export async function resolveDeliveryTarget(
   cfg: OpenClawConfig,
@@ -75,6 +77,20 @@ export async function resolveDeliveryTarget(
   const mode = resolved.mode as "explicit" | "implicit";
   const toCandidate = resolved.to;
 
+  // When the session has no lastAccountId (e.g. first-run isolated cron
+  // session), fall back to the agent's bound account from bindings config.
+  // This ensures the message tool in isolated sessions resolves the correct
+  // bot token for multi-account setups.
+  let accountId = resolved.accountId;
+  if (!accountId && channel) {
+    const bindings = buildChannelAccountBindings(cfg);
+    const byAgent = bindings.get(channel);
+    const boundAccounts = byAgent?.get(normalizeAgentId(agentId));
+    if (boundAccounts && boundAccounts.length > 0) {
+      accountId = boundAccounts[0];
+    }
+  }
+
   // When an explicit threadId is provided (from cron delivery config), always use it.
   // Otherwise, only carry the session-derived threadId when delivering to the same
   // recipient as the session's last conversation. This prevents stale thread IDs
@@ -93,7 +109,7 @@ export async function resolveDeliveryTarget(
     return {
       channel,
       to: undefined,
-      accountId: resolved.accountId,
+      accountId,
       threadId,
       mode,
     };
@@ -103,13 +119,13 @@ export async function resolveDeliveryTarget(
     channel,
     to: toCandidate,
     cfg,
-    accountId: resolved.accountId,
+    accountId,
     mode,
   });
   return {
     channel,
     to: docked.ok ? docked.to : undefined,
-    accountId: resolved.accountId,
+    accountId,
     threadId,
     mode,
     error: docked.ok ? undefined : docked.error,
