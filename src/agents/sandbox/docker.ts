@@ -1,4 +1,110 @@
 import { spawn } from "node:child_process";
+import { sanitizeEnvVars } from "./sanitize-env-vars.js";
+
+type ExecDockerRawOptions = {
+  allowFailure?: boolean;
+  input?: Buffer | string;
+  signal?: AbortSignal;
+};
+
+export type ExecDockerRawResult = {
+  stdout: Buffer;
+  stderr: Buffer;
+  code: number;
+};
+
+type ExecDockerRawError = Error & {
+  code: number;
+  stdout: Buffer;
+  stderr: Buffer;
+};
+
+function createAbortError(): Error {
+  const err = new Error("Aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+export function execDockerRaw(
+  args: string[],
+  opts?: ExecDockerRawOptions,
+): Promise<ExecDockerRawResult> {
+  return new Promise<ExecDockerRawResult>((resolve, reject) => {
+    const child = spawn("docker", args, {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let aborted = false;
+
+    const signal = opts?.signal;
+    const handleAbort = () => {
+      if (aborted) {
+        return;
+      }
+      aborted = true;
+      child.kill("SIGTERM");
+    };
+    if (signal) {
+      if (signal.aborted) {
+        handleAbort();
+      } else {
+        signal.addEventListener("abort", handleAbort);
+      }
+    }
+
+    child.stdout?.on("data", (chunk) => {
+      stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    child.on("error", (error) => {
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (signal) {
+        signal.removeEventListener("abort", handleAbort);
+      }
+      const stdout = Buffer.concat(stdoutChunks);
+      const stderr = Buffer.concat(stderrChunks);
+      if (aborted || signal?.aborted) {
+        reject(createAbortError());
+        return;
+      }
+      const exitCode = code ?? 0;
+      if (exitCode !== 0 && !opts?.allowFailure) {
+        const message = stderr.length > 0 ? stderr.toString("utf8").trim() : "";
+        const error: ExecDockerRawError = Object.assign(
+          new Error(message || `docker ${args.join(" ")} failed`),
+          {
+            code: exitCode,
+            stdout,
+            stderr,
+          },
+        );
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr, code: exitCode });
+    });
+
+    const stdin = child.stdin;
+    if (stdin) {
+      if (opts?.input !== undefined) {
+        stdin.end(opts.input);
+      } else {
+        stdin.end();
+      }
+    }
+  });
+}
+
 import type { SandboxConfig, SandboxDockerConfig, SandboxWorkspaceAccess } from "./types.js";
 import { formatCliCommand } from "../../cli/command-format.js";
 import { defaultRuntime } from "../../runtime.js";
@@ -154,6 +260,28 @@ export function buildSandboxCreateArgs(params: {
   }
   if (params.cfg.user) {
     args.push("--user", params.cfg.user);
+  }
+  // Sanitize environment variables to prevent credential leakage (OC-09 fix)
+  const envSanitization = sanitizeEnvVars(params.cfg.env ?? {}, {
+    strictMode: false, // Allow all non-blocked variables by default
+  });
+
+  // Log blocked variables for security audit
+  if (envSanitization.blocked.length > 0) {
+    console.warn(
+      "[Security] Blocked environment variables:",
+      envSanitization.blocked.map((b) => b.key).join(", "),
+    );
+  }
+
+  // Log warnings (e.g., suspicious base64 values)
+  if (envSanitization.warnings.length > 0) {
+    console.warn("[Security] Environment variable warnings:", envSanitization.warnings);
+  }
+
+  // Only pass sanitized (allowed) environment variables to Docker
+  for (const [key, value] of Object.entries(envSanitization.allowed)) {
+    args.push("--env", key + "=" + value);
   }
   for (const cap of params.cfg.capDrop) {
     args.push("--cap-drop", cap);
