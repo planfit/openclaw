@@ -2,6 +2,7 @@ import type { CronJob, CronSchedule } from "../../cron/types.js";
 import type { GatewayRpcOpts } from "../gateway-rpc.js";
 import { listChannelPlugins } from "../../channels/plugins/index.js";
 import { parseAbsoluteTimeMs } from "../../cron/parse.js";
+import { resolveCronStaggerMs } from "../../cron/stagger.js";
 import { formatDurationHuman } from "../../infra/format-time/format-duration.ts";
 import { defaultRuntime } from "../../runtime.js";
 import { colorize, isRich, theme } from "../../terminal/theme.js";
@@ -70,8 +71,7 @@ export function parseAt(input: string): string | null {
   if (absolute !== null) {
     return new Date(absolute).toISOString();
   }
-  const durInput = raw.startsWith("+") ? raw.slice(1) : raw;
-  const dur = parseDurationMs(durInput);
+  const dur = parseDurationMs(raw);
   if (dur !== null) {
     return new Date(Date.now() + dur).toISOString();
   }
@@ -138,7 +138,12 @@ const formatSchedule = (schedule: CronSchedule) => {
   if (schedule.kind === "every") {
     return `every ${formatDurationHuman(schedule.everyMs)}`;
   }
-  return schedule.tz ? `cron ${schedule.expr} @ ${schedule.tz}` : `cron ${schedule.expr}`;
+  const base = schedule.tz ? `cron ${schedule.expr} @ ${schedule.tz}` : `cron ${schedule.expr}`;
+  const staggerMs = resolveCronStaggerMs(schedule);
+  if (staggerMs <= 0) {
+    return `${base} (exact)`;
+  }
+  return `${base} (stagger ${formatDurationHuman(staggerMs)})`;
 };
 
 const formatStatus = (job: CronJob) => {
