@@ -83,6 +83,119 @@ function parseIpv4FromMappedIpv6(mapped: string): number[] | null {
   return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
+function parseIpv6Hextets(input: string): number[] | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed || !trimmed.includes(":")) {
+    return null;
+  }
+
+  // Handle dotted-quad suffix (e.g., ::ffff:192.168.0.1)
+  const lastColonIndex = trimmed.lastIndexOf(":");
+  const possibleIpv4 = trimmed.slice(lastColonIndex + 1);
+  if (possibleIpv4.includes(".")) {
+    const ipv4Parts = parseIpv4(possibleIpv4);
+    if (!ipv4Parts) {
+      return null;
+    }
+    const prefix = trimmed.slice(0, lastColonIndex);
+    const high = (ipv4Parts[0] << 8) | ipv4Parts[1];
+    const low = (ipv4Parts[2] << 8) | ipv4Parts[3];
+    const prefixHextets = parseIpv6Hextets(`${prefix}:${high.toString(16)}:${low.toString(16)}`);
+    return prefixHextets;
+  }
+
+  const doubleColonParts = trimmed.split("::");
+  if (doubleColonParts.length > 2) {
+    return null;
+  }
+
+  const headParts = doubleColonParts[0] ? doubleColonParts[0].split(":") : [];
+  const tailParts =
+    doubleColonParts.length === 2 && doubleColonParts[1]
+      ? doubleColonParts[1].split(":")
+      : doubleColonParts.length === 2
+        ? []
+        : [];
+  const missingParts = 8 - headParts.length - tailParts.length;
+
+  const fullParts =
+    doubleColonParts.length === 1
+      ? trimmed.split(":")
+      : [...headParts, ...Array.from({ length: missingParts }, () => "0"), ...tailParts];
+
+  if (fullParts.length !== 8) {
+    return null;
+  }
+
+  const hextets: number[] = [];
+  for (const part of fullParts) {
+    if (!part) {
+      return null;
+    }
+    const hexValue = Number.parseInt(part, 16);
+    if (Number.isNaN(hexValue) || hexValue < 0 || hexValue > 0xffff) {
+      return null;
+    }
+    hextets.push(hexValue);
+  }
+  return hextets;
+}
+
+function extractIpv4FromEmbeddedIpv6(hextets: number[]): number[] | null {
+  // IPv4-mapped: ::ffff:a.b.c.d (and full-form variants)
+  // IPv4-compatible: ::a.b.c.d (deprecated, but still needs private-network blocking)
+  const zeroPrefix = hextets[0] === 0 && hextets[1] === 0 && hextets[2] === 0 && hextets[3] === 0;
+  if (zeroPrefix && hextets[4] === 0 && (hextets[5] === 0xffff || hextets[5] === 0)) {
+    const h = hextets[6];
+    const l = hextets[7];
+    return [(h >>> 8) & 0xff, h & 0xff, (l >>> 8) & 0xff, l & 0xff];
+  }
+
+  // NAT64 well-known prefix: 64:ff9b::/96
+  if (
+    hextets[0] === 0x0064 &&
+    hextets[1] === 0xff9b &&
+    hextets[2] === 0 &&
+    hextets[3] === 0 &&
+    hextets[4] === 0 &&
+    hextets[5] === 0
+  ) {
+    const h = hextets[6];
+    const l = hextets[7];
+    return [(h >>> 8) & 0xff, h & 0xff, (l >>> 8) & 0xff, l & 0xff];
+  }
+
+  // NAT64 local-use prefix: 64:ff9b:1::/48 (common ::x.x.x.x form)
+  if (
+    hextets[0] === 0x0064 &&
+    hextets[1] === 0xff9b &&
+    hextets[2] === 0x0001 &&
+    hextets[3] === 0 &&
+    hextets[4] === 0 &&
+    hextets[5] === 0
+  ) {
+    const h = hextets[6];
+    const l = hextets[7];
+    return [(h >>> 8) & 0xff, h & 0xff, (l >>> 8) & 0xff, l & 0xff];
+  }
+
+  // 6to4 prefix: 2002::/16 where hextets[1..2] carry the IPv4 address.
+  if (hextets[0] === 0x2002) {
+    const h = hextets[1];
+    const l = hextets[2];
+    return [(h >>> 8) & 0xff, h & 0xff, (l >>> 8) & 0xff, l & 0xff];
+  }
+
+  // Teredo prefix: 2001:0000::/32 where client IPv4 is obfuscated via XOR 0xffff.
+  if (hextets[0] === 0x2001 && hextets[1] === 0x0000) {
+    const h = hextets[6] ^ 0xffff;
+    const l = hextets[7] ^ 0xffff;
+    return [(h >>> 8) & 0xff, h & 0xff, (l >>> 8) & 0xff, l & 0xff];
+  }
+
+  return null;
+}
+
 function isPrivateIpv4(parts: number[]): boolean {
   const [octet1, octet2] = parts;
   if (octet1 === 0) {
@@ -127,7 +240,37 @@ export function isPrivateIpAddress(address: string): boolean {
   }
 
   if (normalized.includes(":")) {
-    if (normalized === "::" || normalized === "::1") {
+    const hextets = parseIpv6Hextets(normalized);
+    if (!hextets) {
+      // Security-critical parse failures should fail closed.
+      return true;
+    }
+
+    // Check embedded IPv4 in IPv6 transition mechanisms (NAT64, 6to4, Teredo, etc.)
+    const embeddedIpv4 = extractIpv4FromEmbeddedIpv6(hextets);
+    if (embeddedIpv4 && isPrivateIpv4(embeddedIpv4)) {
+      return true;
+    }
+
+    const isUnspecified =
+      hextets[0] === 0 &&
+      hextets[1] === 0 &&
+      hextets[2] === 0 &&
+      hextets[3] === 0 &&
+      hextets[4] === 0 &&
+      hextets[5] === 0 &&
+      hextets[6] === 0 &&
+      hextets[7] === 0;
+    const isLoopback =
+      hextets[0] === 0 &&
+      hextets[1] === 0 &&
+      hextets[2] === 0 &&
+      hextets[3] === 0 &&
+      hextets[4] === 0 &&
+      hextets[5] === 0 &&
+      hextets[6] === 0 &&
+      hextets[7] === 1;
+    if (isUnspecified || isLoopback) {
       return true;
     }
     return PRIVATE_IPV6_PREFIXES.some((prefix) => normalized.startsWith(prefix));
