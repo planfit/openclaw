@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeFingerprint } from "../tls/fingerprint.js";
-import { isPrivateIpAddress } from "./ssrf.js";
+import { isBlockedHostnameOrIp, isPrivateIpAddress } from "./ssrf.js";
 
 describe("ssrf ip classification", () => {
   it("treats IPv4-mapped and IPv4-compatible IPv6 loopback as private", () => {
@@ -60,5 +60,17 @@ describe("normalizeFingerprint", () => {
     expect(normalizeFingerprint("sha256:AA:BB:cc")).toBe("aabbcc");
     expect(normalizeFingerprint("SHA-256 11-22-33")).toBe("112233");
     expect(normalizeFingerprint("aa:bb:cc")).toBe("aabbcc");
+  });
+});
+
+describe("isBlockedHostnameOrIp", () => {
+  it("blocks localhost.localdomain and metadata hostname aliases", () => {
+    expect(isBlockedHostnameOrIp("localhost.localdomain")).toBe(true);
+    expect(isBlockedHostnameOrIp("metadata.google.internal")).toBe(true);
+  });
+
+  it("blocks private transition addresses via shared IP classifier", () => {
+    expect(isBlockedHostnameOrIp("2001:db8:1234::5efe:127.0.0.1")).toBe(true);
+    expect(isBlockedHostnameOrIp("2001:db8::1")).toBe(false);
   });
 });
