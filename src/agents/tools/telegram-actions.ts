@@ -1,6 +1,5 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { OpenClawConfig } from "../../config/config.js";
-import type { TelegramButtonStyle, TelegramInlineButtons } from "../../telegram/button-types.js";
 import {
   resolveTelegramInlineButtonsScope,
   resolveTelegramTargetChatType,
@@ -24,11 +23,14 @@ import {
   readStringParam,
 } from "./common.js";
 
-const TELEGRAM_BUTTON_STYLES: readonly TelegramButtonStyle[] = ["danger", "success", "primary"];
+type TelegramButton = {
+  text: string;
+  callback_data: string;
+};
 
 export function readTelegramButtons(
   params: Record<string, unknown>,
-): TelegramInlineButtons | undefined {
+): TelegramButton[][] | undefined {
   const raw = params.buttons;
   if (raw == null) {
     return undefined;
@@ -60,21 +62,7 @@ export function readTelegramButtons(
           `buttons[${rowIndex}][${buttonIndex}] callback_data too long (max 64 chars)`,
         );
       }
-      const styleRaw = (button as { style?: unknown }).style;
-      const style = typeof styleRaw === "string" ? styleRaw.trim().toLowerCase() : undefined;
-      if (styleRaw !== undefined && !style) {
-        throw new Error(`buttons[${rowIndex}][${buttonIndex}] style must be string`);
-      }
-      if (style && !TELEGRAM_BUTTON_STYLES.includes(style as TelegramButtonStyle)) {
-        throw new Error(
-          `buttons[${rowIndex}][${buttonIndex}] style must be one of ${TELEGRAM_BUTTON_STYLES.join(", ")}`,
-        );
-      }
-      return {
-        text,
-        callback_data: callbackData,
-        ...(style ? { style: style as TelegramButtonStyle } : {}),
-      };
+      return { text, callback_data: callbackData };
     });
   });
   const filtered = rows.filter((row) => row.length > 0);
@@ -330,43 +318,6 @@ export async function handleTelegramAction(
   if (action === "stickerCacheStats") {
     const stats = getCacheStats();
     return jsonResult({ ok: true, ...stats });
-  }
-
-  if (action === "sendPoll") {
-    const to = readStringParam(params, "to", { required: true });
-    const question = readStringParam(params, "question") ?? readStringParam(params, "pollQuestion");
-    if (!question) {
-      throw new Error("sendPoll requires 'question'");
-    }
-    const options = (params.options ?? params.pollOption) as string[] | undefined;
-    if (!options || options.length < 2) {
-      throw new Error("sendPoll requires at least 2 options");
-    }
-    const maxSelections =
-      typeof params.maxSelections === "number" ? params.maxSelections : undefined;
-    const isAnonymous = typeof params.isAnonymous === "boolean" ? params.isAnonymous : undefined;
-    const silent = typeof params.silent === "boolean" ? params.silent : undefined;
-    const replyToMessageId = readNumberParam(params, "replyTo");
-    const messageThreadId = readNumberParam(params, "threadId");
-    const pollAccountId = readStringParam(params, "accountId");
-
-    const res = await sendPollTelegram(
-      to,
-      { question, options, maxSelections },
-      {
-        accountId: pollAccountId?.trim() || undefined,
-        replyToMessageId,
-        messageThreadId,
-        isAnonymous,
-        silent,
-      },
-    );
-    return jsonResult({
-      ok: true,
-      messageId: res.messageId,
-      chatId: res.chatId,
-      pollId: res.pollId,
-    });
   }
 
   throw new Error(`Unsupported Telegram action: ${action}`);
