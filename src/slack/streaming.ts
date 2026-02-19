@@ -36,6 +36,10 @@ export type StartSlackStreamParams = {
   threadTs: string;
   /** Optional initial markdown text to include in the stream start. */
   text?: string;
+  /** Required when starting a stream outside of a DM. */
+  recipientTeamId?: string;
+  /** Required when starting a stream outside of a DM. */
+  recipientUserId?: string;
 };
 
 export type AppendSlackStreamParams = {
@@ -64,13 +68,15 @@ export type StopSlackStreamParams = {
 export async function startSlackStream(
   params: StartSlackStreamParams,
 ): Promise<SlackStreamSession> {
-  const { client, channel, threadTs, text } = params;
+  const { client, channel, threadTs, text, recipientTeamId, recipientUserId } = params;
 
   logVerbose(`slack-stream: starting stream in ${channel} thread=${threadTs}`);
 
   const streamer = client.chatStream({
     channel,
     thread_ts: threadTs,
+    recipient_team_id: recipientTeamId,
+    recipient_user_id: recipientUserId,
   });
 
   const session: SlackStreamSession = {
