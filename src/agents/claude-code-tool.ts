@@ -23,6 +23,12 @@ const claudeCodeSchema = Type.Object({
         "Session ID from a previous plan-mode call. Resumes and executes the planned work.",
     }),
   ),
+  workFolder: Type.Optional(
+    Type.String({
+      description:
+        "Working directory override. When set, Claude Code runs in this directory instead of the agent's default workspace. Use for project-specific work (e.g., git worktrees).",
+    }),
+  ),
 });
 
 export type ClaudeCodeToolDetails =
@@ -62,7 +68,7 @@ export function createClaudeCodeTool(defaults?: {
 
       const result = await runSDKAgent({
         prompt: params.prompt,
-        cwd: defaults?.cwd ?? process.cwd(),
+        cwd: params.workFolder ?? defaults?.cwd ?? process.cwd(),
         model: params.model ?? defaults?.model,
         maxTurns: defaults?.maxTurns,
         systemPromptAppend: defaults?.systemPromptAppend,
