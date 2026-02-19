@@ -150,7 +150,10 @@ describe("bash process registry", () => {
     const session: ProcessSession = {
       id: "sess",
       command: "echo test",
-      child: { pid: 123 } as ChildProcessWithoutNullStreams,
+      child: {
+        pid: 123,
+        removeAllListeners: () => {},
+      } as unknown as ChildProcessWithoutNullStreams,
       startedAt: Date.now(),
       cwd: "/tmp",
       maxOutputChars: 100,

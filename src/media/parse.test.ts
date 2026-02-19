@@ -8,28 +8,28 @@ describe("splitMediaFromOutput", () => {
     expect(result.text).toBe("Hello world");
   });
 
-  it("rejects absolute media paths to prevent LFI", () => {
+  it("strips absolute media paths (prevents local path leakage)", () => {
     const result = splitMediaFromOutput("MEDIA:/Users/pete/My File.png");
     expect(result.mediaUrls).toBeUndefined();
-    expect(result.text).toBe("MEDIA:/Users/pete/My File.png");
+    expect(result.text).toBe("");
   });
 
-  it("rejects quoted absolute media paths to prevent LFI", () => {
+  it("strips quoted absolute media paths (prevents local path leakage)", () => {
     const result = splitMediaFromOutput('MEDIA:"/Users/pete/My File.png"');
     expect(result.mediaUrls).toBeUndefined();
-    expect(result.text).toBe('MEDIA:"/Users/pete/My File.png"');
+    expect(result.text).toBe("");
   });
 
-  it("rejects tilde media paths to prevent LFI", () => {
+  it("strips tilde media paths (prevents local path leakage)", () => {
     const result = splitMediaFromOutput("MEDIA:~/Pictures/My File.png");
     expect(result.mediaUrls).toBeUndefined();
-    expect(result.text).toBe("MEDIA:~/Pictures/My File.png");
+    expect(result.text).toBe("");
   });
 
-  it("rejects directory traversal media paths to prevent LFI", () => {
+  it("strips directory traversal media paths (prevents local path leakage)", () => {
     const result = splitMediaFromOutput("MEDIA:../../etc/passwd");
     expect(result.mediaUrls).toBeUndefined();
-    expect(result.text).toBe("MEDIA:../../etc/passwd");
+    expect(result.text).toBe("");
   });
 
   it("captures safe relative media paths", () => {
@@ -56,6 +56,12 @@ describe("splitMediaFromOutput", () => {
   it("parses MEDIA tags with leading whitespace", () => {
     const result = splitMediaFromOutput("  MEDIA:./screenshot.png");
     expect(result.mediaUrls).toEqual(["./screenshot.png"]);
+    expect(result.text).toBe("");
+  });
+
+  it("strips TTS temp file paths (prevents local path leakage)", () => {
+    const result = splitMediaFromOutput("MEDIA:/tmp/tts-fAJy8C/voice-1770246885083.opus");
+    expect(result.mediaUrls).toBeUndefined();
     expect(result.text).toBe("");
   });
 });
