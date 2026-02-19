@@ -8,8 +8,7 @@ import { resolveAgentConfig } from "./agent-scope.js";
 import { AGENT_LANE_SUBAGENT } from "./lanes.js";
 import { resolveDefaultModelForAgent } from "./model-selection.js";
 import { buildSubagentSystemPrompt } from "./subagent-announce.js";
-import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
-import { countActiveRunsForSession, registerSubagentRun } from "./subagent-registry.js";
+import { listSubagentRunsForRequester, registerSubagentRun } from "./subagent-registry.js";
 import { readStringParam } from "./tools/common.js";
 import {
   resolveDisplaySessionKey,
@@ -121,8 +120,10 @@ export async function spawnSubagentDirect(
     mainKey,
   });
 
-  const callerDepth = getSubagentDepthFromSessionStore(requesterInternalKey, { cfg });
-  const maxSpawnDepth = cfg.agents?.defaults?.subagents?.maxSpawnDepth ?? 1;
+  const callerDepth = 0; // Fork: depth tracking not implemented
+  const maxSpawnDepth =
+    ((cfg.agents?.defaults?.subagents as Record<string, unknown> | undefined)
+      ?.maxSpawnDepth as number) ?? 1;
   if (callerDepth >= maxSpawnDepth) {
     return {
       status: "forbidden",
@@ -130,8 +131,12 @@ export async function spawnSubagentDirect(
     };
   }
 
-  const maxChildren = cfg.agents?.defaults?.subagents?.maxChildrenPerAgent ?? 5;
-  const activeChildren = countActiveRunsForSession(requesterInternalKey);
+  const maxChildren =
+    ((cfg.agents?.defaults?.subagents as Record<string, unknown> | undefined)
+      ?.maxChildrenPerAgent as number) ?? 5;
+  const activeChildren = listSubagentRunsForRequester(requesterInternalKey).filter(
+    (r) => !r.endedAt,
+  ).length;
   if (activeChildren >= maxChildren) {
     return {
       status: "forbidden",
@@ -258,8 +263,6 @@ export async function spawnSubagentDirect(
     childSessionKey,
     label: label || undefined,
     task,
-    childDepth,
-    maxSpawnDepth,
   });
   const childTaskMessage = [
     `[Subagent Context] You are running as a subagent (depth ${childDepth}/${maxSpawnDepth}). Results auto-announce to your requester; do not busy-poll for status.`,
@@ -315,7 +318,6 @@ export async function spawnSubagentDirect(
     task,
     cleanup,
     label: label || undefined,
-    model: resolvedModel,
     runTimeoutSeconds,
   });
 

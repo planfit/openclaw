@@ -315,6 +315,7 @@ export type PluginHookName =
 export type PluginHookAgentContext = {
   agentId?: string;
   sessionKey?: string;
+  sessionId?: string;
   workspaceDir?: string;
   messageProvider?: string;
 };
