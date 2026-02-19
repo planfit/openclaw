@@ -233,10 +233,6 @@ export class AcpGatewayAgent implements Agent {
       this.sessionStore.cancelActiveRun(params.sessionId);
     }
 
-    const abortController = new AbortController();
-    const runId = randomUUID();
-    this.sessionStore.setActiveRun(params.sessionId, runId, abortController);
-
     const meta = parseSessionMeta(params._meta);
     // Pass MAX_PROMPT_BYTES so extractTextFromPrompt rejects oversized content
     // block-by-block, before the full string is ever assembled in memory (CWE-400)
@@ -249,6 +245,10 @@ export class AcpGatewayAgent implements Agent {
     if (Buffer.byteLength(message, "utf-8") > MAX_PROMPT_BYTES) {
       throw new Error(`Prompt exceeds maximum allowed size of ${MAX_PROMPT_BYTES} bytes`);
     }
+
+    const abortController = new AbortController();
+    const runId = randomUUID();
+    this.sessionStore.setActiveRun(params.sessionId, runId, abortController);
 
     return new Promise<PromptResponse>((resolve, reject) => {
       this.pendingPrompts.set(params.sessionId, {
