@@ -21,6 +21,7 @@ export async function persistSessionUsageUpdate(params: {
   systemPromptReport?: SessionSystemPromptReport;
   cliSessionId?: string;
   logLabel?: string;
+  compactionCompleted?: boolean;
 }): Promise<void> {
   const { storePath, sessionKey } = params;
   if (!storePath || !sessionKey) {
@@ -70,7 +71,7 @@ export async function persistSessionUsageUpdate(params: {
     return;
   }
 
-  if (params.modelUsed || params.contextTokensUsed) {
+  if (params.modelUsed || params.contextTokensUsed || params.compactionCompleted) {
     try {
       await updateSessionStoreEntry({
         storePath,
@@ -82,6 +83,11 @@ export async function persistSessionUsageUpdate(params: {
             contextTokens: params.contextTokensUsed ?? entry.contextTokens,
             systemPromptReport: params.systemPromptReport ?? entry.systemPromptReport,
             updatedAt: Date.now(),
+            ...(params.compactionCompleted && {
+              totalTokens: 0,
+              inputTokens: undefined,
+              outputTokens: undefined,
+            }),
           };
           const cliProvider = params.providerUsed ?? entry.modelProvider;
           if (params.cliSessionId && cliProvider) {

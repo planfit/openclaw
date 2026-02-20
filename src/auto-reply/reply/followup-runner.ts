@@ -256,6 +256,7 @@ export function createFollowupRunner(params: {
           providerUsed: fallbackProvider,
           contextTokensUsed,
           logLabel: "followup",
+          compactionCompleted: followupAutoCompactionCompleted,
         });
       }
 

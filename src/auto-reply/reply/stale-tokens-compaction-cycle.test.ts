@@ -192,41 +192,40 @@ describe("stale totalTokens → memory flush → auto-compaction cycle", () => {
     expect(result).toBe(false);
   });
 
-  it("persistSessionUsageUpdate with accumulated usage overwrites totalTokens to stale value", async () => {
-    // This test documents the current (problematic) behavior:
-    // After compaction, the accumulated usage from the entire run (pre + post compaction)
-    // gets written to totalTokens, overwriting the post-compaction reset.
+  it("persistSessionUsageUpdate with compactionCompleted resets totalTokens to 0", async () => {
+    // When compaction completed during the run, persistSessionUsageUpdate must
+    // reset totalTokens to 0 instead of preserving stale accumulated usage.
     const { persistSessionUsageUpdate } = await import("./session-usage.js");
 
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-stale-"));
     const storePath = path.join(tmp, "sessions.json");
     const sessionKey = "main";
 
-    // Start with post-compaction state: totalTokens reset to 0
+    // Simulate: disk still has stale totalTokens because incrementCompactionCount
+    // (floating promise) hasn't flushed yet.
     const sessionEntry = {
       sessionId: "session",
       updatedAt: Date.now(),
-      totalTokens: 0,
+      totalTokens: 95_000,
       compactionCount: 1,
     };
 
     await seedSessionStore({ storePath, sessionKey, entry: sessionEntry });
 
-    // Now persistSessionUsageUpdate is called with large accumulated usage
-    // This simulates what happens in agent-runner.ts after a run that included compaction
+    // persistSessionUsageUpdate with compactionCompleted=true should atomically
+    // reset totalTokens to 0, even though the store still has the stale value.
     await persistSessionUsageUpdate({
       storePath,
       sessionKey,
-      usage: { input: 800_000, output: 5_000, cacheRead: 100_000 },
       modelUsed: "claude",
       providerUsed: "anthropic",
       contextTokensUsed: 1_000_000,
+      compactionCompleted: true,
     });
 
     const stored = JSON.parse(await fs.readFile(storePath, "utf-8"));
-    // The accumulated usage overwrites totalTokens to a very large number
-    // This is the root cause of the stale token cycle
-    expect(stored[sessionKey].totalTokens).toBeGreaterThan(100_000);
+    // totalTokens must be 0 after compaction — not the stale 95_000
+    expect(stored[sessionKey].totalTokens).toBe(0);
   });
 
   it("after auto-compaction, next turn should not trigger memory flush (integration)", async () => {
