@@ -73,4 +73,9 @@ describe("isBlockedHostnameOrIp", () => {
     expect(isBlockedHostnameOrIp("2001:db8:1234::5efe:127.0.0.1")).toBe(true);
     expect(isBlockedHostnameOrIp("2001:db8::1")).toBe(false);
   });
+
+  it("blocks IPv4 special-use ranges but allows adjacent public ranges", () => {
+    expect(isBlockedHostnameOrIp("198.18.0.1")).toBe(true);
+    expect(isBlockedHostnameOrIp("198.20.0.1")).toBe(false);
+  });
 });
