@@ -11,6 +11,7 @@ export type LegacyConfigMigration = {
 };
 
 import { isRecord } from "../utils.js";
+import { isBlockedObjectKey } from "./prototype-keys.js";
 export { isRecord };
 
 export const getRecord = (value: unknown): Record<string, unknown> | null =>
@@ -31,7 +32,7 @@ export const ensureRecord = (
 
 export const mergeMissing = (target: Record<string, unknown>, source: Record<string, unknown>) => {
   for (const [key, value] of Object.entries(source)) {
-    if (value === undefined) {
+    if (value === undefined || isBlockedObjectKey(key)) {
       continue;
     }
     const existing = target[key];
