@@ -92,6 +92,7 @@ export async function runAgentTurnWithFallback(params: {
       sessionKey: params.sessionKey,
       verboseLevel: params.resolvedVerboseLevel,
       isHeartbeat: params.isHeartbeat,
+      suppressToolSummaries: !params.opts?.onToolResult,
     });
   }
   let runResult: Awaited<ReturnType<typeof runEmbeddedPiAgent>>;
@@ -354,7 +355,7 @@ export async function runAgentTurnWithFallback(params: {
                 const willRetry = Boolean(evt.data.willRetry);
 
                 if (phase === "start" && params.resolvedVerboseLevel !== "off") {
-                  params.opts?.onBlockReply?.({ text: "🧹 Auto-compaction in progress…" });
+                  void params.opts?.onBlockReply?.({ text: "🧹 Auto-compaction in progress…" });
                 }
 
                 if (phase === "end" && !willRetry) {
@@ -368,7 +369,9 @@ export async function runAgentTurnWithFallback(params: {
                   });
                   if (params.resolvedVerboseLevel !== "off") {
                     const suffix = typeof count === "number" ? ` (count ${count})` : "";
-                    params.opts?.onBlockReply?.({ text: `🧹 Auto-compaction complete${suffix}.` });
+                    void params.opts?.onBlockReply?.({
+                      text: `🧹 Auto-compaction complete${suffix}.`,
+                    });
                   }
                 }
               }

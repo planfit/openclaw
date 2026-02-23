@@ -1,7 +1,11 @@
 import type { DeliveryContext } from "../utils/delivery-context.js";
 import { routeReply } from "../auto-reply/reply/route-reply.js";
 import { loadConfig } from "../config/config.js";
-import { onAgentEvent } from "../infra/agent-events.js";
+import {
+  getAgentRunContext,
+  onAgentEvent,
+  resolveRunIdBySessionKey,
+} from "../infra/agent-events.js";
 import { defaultRuntime } from "../runtime.js";
 import { maybeQueueSubagentAnnounce } from "./subagent-announce.js";
 import { resolveToolDisplay, formatToolSummary } from "./tool-display.js";
@@ -17,6 +21,8 @@ export type SubagentProgressConfig = {
   channelThrottleMs?: number;
   /** Parent agent intermediate report interval (ms). default: 30000 */
   parentReportIntervalMs?: number;
+  /** When true, skip relaying tool summaries to the channel (e.g. group chats, native commands). */
+  suppressChannelRelay?: boolean;
 };
 
 type ToolUsageEntry = {
@@ -92,7 +98,26 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     parentReportTimer.unref?.();
   }
 
+  function shouldSuppressRelay(): boolean {
+    if (config.suppressChannelRelay) {
+      return true;
+    }
+    // Check parent run context for suppressToolSummaries (set by dispatch-from-config
+    // when ChatType is "group" or CommandSource is "native").
+    const parentRunId = resolveRunIdBySessionKey(config.requesterSessionKey);
+    if (parentRunId) {
+      const parentCtx = getAgentRunContext(parentRunId);
+      if (parentCtx?.suppressToolSummaries) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function relayToChannel(message: string) {
+    if (shouldSuppressRelay()) {
+      return;
+    }
     if (!config.requesterOrigin?.channel || !config.requesterOrigin?.to) {
       defaultRuntime.log(
         `[subagent-progress] channel relay skipped: channel=${config.requesterOrigin?.channel ?? "none"} to=${config.requesterOrigin?.to ?? "none"} runId=${config.runId}`,

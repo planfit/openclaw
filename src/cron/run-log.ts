@@ -117,23 +117,30 @@ export async function readCronRunLogEntries(
         durationMs: obj.durationMs,
         nextRunAtMs: obj.nextRunAtMs,
         model: typeof obj.model === "string" && obj.model.trim() ? obj.model : undefined,
-        provider: typeof obj.provider === "string" && obj.provider.trim() ? obj.provider : undefined,
+        provider:
+          typeof obj.provider === "string" && obj.provider.trim() ? obj.provider : undefined,
         usage:
           obj.usage && typeof obj.usage === "object"
             ? {
                 input_tokens:
-                  typeof (obj.usage as any).input_tokens === "number" ? (obj.usage as any).input_tokens : undefined,
+                  typeof (obj.usage as Record<string, unknown>).input_tokens === "number"
+                    ? ((obj.usage as Record<string, unknown>).input_tokens as number)
+                    : undefined,
                 output_tokens:
-                  typeof (obj.usage as any).output_tokens === "number" ? (obj.usage as any).output_tokens : undefined,
+                  typeof (obj.usage as Record<string, unknown>).output_tokens === "number"
+                    ? ((obj.usage as Record<string, unknown>).output_tokens as number)
+                    : undefined,
                 total_tokens:
-                  typeof (obj.usage as any).total_tokens === "number" ? (obj.usage as any).total_tokens : undefined,
+                  typeof (obj.usage as Record<string, unknown>).total_tokens === "number"
+                    ? ((obj.usage as Record<string, unknown>).total_tokens as number)
+                    : undefined,
                 cache_read_tokens:
-                  typeof (obj.usage as any).cache_read_tokens === "number"
-                    ? (obj.usage as any).cache_read_tokens
+                  typeof (obj.usage as Record<string, unknown>).cache_read_tokens === "number"
+                    ? ((obj.usage as Record<string, unknown>).cache_read_tokens as number)
                     : undefined,
                 cache_write_tokens:
-                  typeof (obj.usage as any).cache_write_tokens === "number"
-                    ? (obj.usage as any).cache_write_tokens
+                  typeof (obj.usage as Record<string, unknown>).cache_write_tokens === "number"
+                    ? ((obj.usage as Record<string, unknown>).cache_write_tokens as number)
                     : undefined,
               }
             : undefined,

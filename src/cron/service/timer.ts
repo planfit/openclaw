@@ -160,6 +160,7 @@ export function armTimer(state: CronServiceState) {
 
 export async function onTimer(state: CronServiceState) {
   if (state.running) {
+    state.deps.log.info({}, "cron: onTimer skipped - already running");
     return;
   }
   state.running = true;
@@ -167,6 +168,11 @@ export async function onTimer(state: CronServiceState) {
     const dueJobs = await locked(state, async () => {
       await ensureLoaded(state, { forceReload: true, skipRecompute: true });
       const due = findDueJobs(state);
+
+      state.deps.log.info(
+        { count: due.length, jobs: due.map((j) => ({ id: j.id, name: j.name })) },
+        "cron: due jobs found",
+      );
 
       if (due.length === 0) {
         const changed = recomputeNextRuns(state);
@@ -200,7 +206,12 @@ export async function onTimer(state: CronServiceState) {
       endedAt: number;
     }> = [];
 
-    for (const { id, job } of dueJobs) {
+    for (let i = 0; i < dueJobs.length; i++) {
+      const { id, job } = dueJobs[i];
+      state.deps.log.info(
+        { jobId: id, jobName: job.name, index: i + 1, total: dueJobs.length },
+        "cron: executing job",
+      );
       const startedAt = state.deps.nowMs();
       job.state.runningAtMs = startedAt;
       emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
@@ -221,7 +232,12 @@ export async function onTimer(state: CronServiceState) {
             );
           }),
         ]).finally(() => clearTimeout(timeoutId!));
-        results.push({ jobId: id, ...result, startedAt, endedAt: state.deps.nowMs() });
+        const endedAt = state.deps.nowMs();
+        state.deps.log.info(
+          { jobId: id, status: result.status, durationMs: endedAt - startedAt },
+          "cron: job execution completed",
+        );
+        results.push({ jobId: id, ...result, startedAt, endedAt });
       } catch (err) {
         state.deps.log.warn(
           { jobId: id, jobName: job.name, timeoutMs: jobTimeoutMs },
