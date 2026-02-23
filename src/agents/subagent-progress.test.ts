@@ -269,7 +269,7 @@ describe("subscribeSubagentProgress", () => {
 
     expect(routeReplyMock).toHaveBeenCalledTimes(2);
     const errorCall = routeReplyMock.mock.calls[1][0] as { payload: { text: string } };
-    expect(errorCall.payload.text).toContain("❌");
+    expect(errorCall.payload.text).toContain(":x:");
     expect(errorCall.payload.text).toContain("read");
   });
 
@@ -352,7 +352,12 @@ describe("subscribeSubagentProgress", () => {
 
       // Should add ⏳ reaction to the message
       expect(reactSlackMessageMock).toHaveBeenCalledTimes(1);
-      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "⏳", {});
+      expect(reactSlackMessageMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "hourglass_flowing_sand",
+        {},
+      );
     });
 
     it("removes ⏳ and adds ✅ when subagent completes successfully", async () => {
@@ -376,11 +381,21 @@ describe("subscribeSubagentProgress", () => {
 
       // Should remove ⏳ reaction
       expect(removeSlackReactionMock).toHaveBeenCalledTimes(1);
-      expect(removeSlackReactionMock).toHaveBeenCalledWith("C123", "1234567890.123456", "⏳", {});
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "hourglass_flowing_sand",
+        {},
+      );
 
       // Should add ✅ reaction
       expect(reactSlackMessageMock).toHaveBeenCalledTimes(1);
-      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "✅", {});
+      expect(reactSlackMessageMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "white_check_mark",
+        {},
+      );
     });
 
     it("removes ⏳ and adds ❌ when subagent fails", async () => {
@@ -404,11 +419,16 @@ describe("subscribeSubagentProgress", () => {
 
       // Should remove ⏳ reaction
       expect(removeSlackReactionMock).toHaveBeenCalledTimes(1);
-      expect(removeSlackReactionMock).toHaveBeenCalledWith("C123", "1234567890.123456", "⏳", {});
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "hourglass_flowing_sand",
+        {},
+      );
 
       // Should add ❌ reaction
       expect(reactSlackMessageMock).toHaveBeenCalledTimes(1);
-      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "❌", {});
+      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "x", {});
     });
 
     it("does not send start message when suppressChannelRelay is true", async () => {

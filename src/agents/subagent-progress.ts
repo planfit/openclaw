@@ -196,7 +196,12 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       if (result.messageId) {
         state.slackStartMessageTs = result.messageId;
         // Add ⏳ reaction to indicate subagent is in progress
-        await reactSlackMessage(config.requesterOrigin.to, result.messageId, "⏳", {});
+        await reactSlackMessage(
+          config.requesterOrigin.to,
+          result.messageId,
+          "hourglass_flowing_sand",
+          {},
+        );
       }
     } catch (err) {
       defaultRuntime.log(
@@ -218,9 +223,14 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
 
     try {
       // Remove ⏳ reaction
-      await removeSlackReaction(config.requesterOrigin.to, state.slackStartMessageTs, "⏳", {});
+      await removeSlackReaction(
+        config.requesterOrigin.to,
+        state.slackStartMessageTs,
+        "hourglass_flowing_sand",
+        {},
+      );
       // Add ✅ or ❌ based on success/failure
-      const emoji = success ? "✅" : "❌";
+      const emoji = success ? "white_check_mark" : "x";
       await reactSlackMessage(config.requesterOrigin.to, state.slackStartMessageTs, emoji, {});
     } catch (err) {
       defaultRuntime.log(
@@ -291,7 +301,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     } else if (phase === "result") {
       const isError = Boolean(evt.data?.isError);
       if (isError && !parentTool) {
-        const errorLine = `❌ Tool failed: ${toolName}`;
+        const errorLine = `:x: Tool failed: ${toolName}`;
         defaultRuntime.log(`[subagent-progress] ${errorLine} (runId=${config.runId})`);
         void relayToChannel(errorLine);
       }
