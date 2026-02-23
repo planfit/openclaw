@@ -7,6 +7,7 @@ import {
   resolveRunIdBySessionKey,
 } from "../infra/agent-events.js";
 import { defaultRuntime } from "../runtime.js";
+import { reactSlackMessage, removeSlackReaction } from "../slack/actions.js";
 import { maybeQueueSubagentAnnounce } from "./subagent-announce.js";
 import { resolveToolDisplay, formatToolSummary } from "./tool-display.js";
 import { normalizeToolName } from "./tool-policy.js";
@@ -37,6 +38,7 @@ type ProgressState = {
   lastChannelSendAt: number;
   lastParentReportAt: number;
   startedAt: number;
+  slackStartMessageTs?: string;
 };
 
 function buildToolSummaryLine(toolName: string, args: unknown): string {
@@ -169,7 +171,84 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     }
   }
 
+  async function sendSlackStartMessage() {
+    // Only send for Slack channels when not suppressed
+    if (shouldSuppressRelay()) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    try {
+      const result = await routeReply({
+        payload: { text: "🧩 Claude Code" },
+        channel: config.requesterOrigin.channel,
+        to: config.requesterOrigin.to,
+        sessionKey: config.requesterSessionKey,
+        threadId: config.requesterOrigin.threadId,
+        cfg: loadConfig(),
+      });
+
+      if (result.messageId) {
+        state.slackStartMessageTs = result.messageId;
+        // Add ⏳ reaction to indicate subagent is in progress
+        await reactSlackMessage(config.requesterOrigin.to, result.messageId, "⏳", {});
+      }
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] slack start message failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function updateSlackReactionOnComplete(success: boolean) {
+    if (!state.slackStartMessageTs) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    try {
+      // Remove ⏳ reaction
+      await removeSlackReaction(config.requesterOrigin.to, state.slackStartMessageTs, "⏳", {});
+      // Add ✅ or ❌ based on success/failure
+      const emoji = success ? "✅" : "❌";
+      await reactSlackMessage(config.requesterOrigin.to, state.slackStartMessageTs, emoji, {});
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] slack reaction update failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   const stopListener = onAgentEvent((evt) => {
+    // Handle lifecycle events for subagent start/end
+    if (evt && evt.stream === "lifecycle") {
+      const matchesRun = evt.runId === config.runId;
+      const matchesSession = evt.sessionKey === config.childSessionKey;
+      if (!matchesRun && !matchesSession) {
+        return;
+      }
+
+      const phase = evt.data?.phase;
+      if (phase === "start") {
+        void sendSlackStartMessage();
+      } else if (phase === "end") {
+        void updateSlackReactionOnComplete(true);
+      } else if (phase === "error") {
+        void updateSlackReactionOnComplete(false);
+      }
+      return;
+    }
+
     if (!evt || evt.stream !== "tool") {
       return;
     }

@@ -16,9 +16,16 @@ vi.mock("../infra/agent-events.js", () => ({
   getAgentRunContext: () => undefined,
 }));
 
-const routeReplyMock = vi.fn(async () => ({ ok: true }));
+const routeReplyMock = vi.fn(async () => ({ ok: true, messageId: "1234567890.123456" }));
 vi.mock("../auto-reply/reply/route-reply.js", () => ({
   routeReply: (...args: unknown[]) => routeReplyMock(...args),
+}));
+
+const reactSlackMessageMock = vi.fn(async () => {});
+const removeSlackReactionMock = vi.fn(async () => {});
+vi.mock("../slack/actions.js", () => ({
+  reactSlackMessage: (...args: unknown[]) => reactSlackMessageMock(...args),
+  removeSlackReaction: (...args: unknown[]) => removeSlackReactionMock(...args),
 }));
 
 const maybeQueueMock = vi.fn(async () => "none" as const);
@@ -54,6 +61,25 @@ function emitToolEvent(
   });
 }
 
+function emitLifecycleEvent(
+  runId: string,
+  phase: "start" | "end" | "error",
+  extra?: Record<string, unknown> & { sessionKey?: string },
+) {
+  if (!capturedListener) {
+    throw new Error("No listener registered");
+  }
+  const { sessionKey, ...rest } = extra ?? {};
+  capturedListener({
+    runId,
+    seq: 1,
+    stream: "lifecycle",
+    ts: Date.now(),
+    data: { phase, ...rest },
+    ...(sessionKey ? { sessionKey } : {}),
+  });
+}
+
 describe("subscribeSubagentProgress", () => {
   let subscribeSubagentProgress: typeof import("./subagent-progress.js").subscribeSubagentProgress;
 
@@ -61,8 +87,11 @@ describe("subscribeSubagentProgress", () => {
     vi.useFakeTimers();
     capturedListener = null;
     routeReplyMock.mockClear();
+    routeReplyMock.mockResolvedValue({ ok: true, messageId: "1234567890.123456" });
     maybeQueueMock.mockClear();
     onAgentEventMock.mockClear();
+    reactSlackMessageMock.mockClear();
+    removeSlackReactionMock.mockClear();
     const mod = await import("./subagent-progress.js");
     subscribeSubagentProgress = mod.subscribeSubagentProgress;
   });
@@ -301,5 +330,163 @@ describe("subscribeSubagentProgress", () => {
     const queueArgs = maybeQueueMock.mock.calls[0][0] as { triggerMessage: string };
     expect(queueArgs.triggerMessage).toContain("read (2)");
     expect(queueArgs.triggerMessage).toContain("edit (1)");
+  });
+
+  describe("Slack reactions for subagent lifecycle", () => {
+    it("sends start message and adds ⏳ reaction when subagent starts on Slack", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "C123" },
+        label: "test-agent",
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should send "🧩 Claude Code" message
+      expect(routeReplyMock).toHaveBeenCalledTimes(1);
+      const callArgs = routeReplyMock.mock.calls[0][0] as { payload: { text: string } };
+      expect(callArgs.payload.text).toContain("🧩 Claude Code");
+
+      // Should add ⏳ reaction to the message
+      expect(reactSlackMessageMock).toHaveBeenCalledTimes(1);
+      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "⏳", {});
+    });
+
+    it("removes ⏳ and adds ✅ when subagent completes successfully", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "C123" },
+        label: "test-agent",
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Clear mocks after start
+      reactSlackMessageMock.mockClear();
+      removeSlackReactionMock.mockClear();
+
+      emitLifecycleEvent("run-1", "end");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should remove ⏳ reaction
+      expect(removeSlackReactionMock).toHaveBeenCalledTimes(1);
+      expect(removeSlackReactionMock).toHaveBeenCalledWith("C123", "1234567890.123456", "⏳", {});
+
+      // Should add ✅ reaction
+      expect(reactSlackMessageMock).toHaveBeenCalledTimes(1);
+      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "✅", {});
+    });
+
+    it("removes ⏳ and adds ❌ when subagent fails", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "C123" },
+        label: "test-agent",
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Clear mocks after start
+      reactSlackMessageMock.mockClear();
+      removeSlackReactionMock.mockClear();
+
+      emitLifecycleEvent("run-1", "error");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should remove ⏳ reaction
+      expect(removeSlackReactionMock).toHaveBeenCalledTimes(1);
+      expect(removeSlackReactionMock).toHaveBeenCalledWith("C123", "1234567890.123456", "⏳", {});
+
+      // Should add ❌ reaction
+      expect(reactSlackMessageMock).toHaveBeenCalledTimes(1);
+      expect(reactSlackMessageMock).toHaveBeenCalledWith("C123", "1234567890.123456", "❌", {});
+    });
+
+    it("does not send start message when suppressChannelRelay is true", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "C123" },
+        label: "test-agent",
+        suppressChannelRelay: true,
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should not send start message when suppressChannelRelay is true
+      expect(routeReplyMock).not.toHaveBeenCalled();
+      expect(reactSlackMessageMock).not.toHaveBeenCalled();
+    });
+
+    it("does not send start message for non-Slack channels", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "telegram", to: "123456" },
+        label: "test-agent",
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should not send start message for non-Slack channels
+      expect(routeReplyMock).not.toHaveBeenCalled();
+      expect(reactSlackMessageMock).not.toHaveBeenCalled();
+    });
+
+    it("handles missing messageId gracefully", async () => {
+      routeReplyMock.mockResolvedValueOnce({ ok: true }); // No messageId
+
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "C123" },
+        label: "test-agent",
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should send message but not add reaction if messageId is missing
+      expect(routeReplyMock).toHaveBeenCalledTimes(1);
+      expect(reactSlackMessageMock).not.toHaveBeenCalled();
+    });
+
+    it("cleans up lifecycle listener on stop", async () => {
+      const stop = subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "C123" },
+        label: "test-agent",
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Clear mocks
+      reactSlackMessageMock.mockClear();
+      removeSlackReactionMock.mockClear();
+      routeReplyMock.mockClear();
+
+      stop();
+
+      // After stop, the listener is removed, so emitting events should be ignored
+      // (capturedListener is set to null by the cleanup function)
+      expect(capturedListener).toBeNull();
+    });
   });
 });
