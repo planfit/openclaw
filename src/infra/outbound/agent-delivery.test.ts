@@ -77,4 +77,67 @@ describe("agent delivery helpers", () => {
     expect(mocks.resolveOutboundTarget).not.toHaveBeenCalled();
     expect(resolved.resolvedTo).toBe("+1555");
   });
+
+  it("prioritizes explicit threadId over session-derived threadId", () => {
+    const plan = resolveAgentDeliveryPlan({
+      sessionEntry: {
+        deliveryContext: {
+          channel: "slack",
+          to: "C0123456789",
+          threadId: "9999999999.999999",
+          lastTo: "C0123456789",
+        },
+      },
+      requestedChannel: "slack",
+      explicitTo: "C0123456789",
+      explicitThreadId: "1234567890.123456",
+      accountId: undefined,
+      wantsDelivery: true,
+    });
+
+    expect(plan.resolvedThreadId).toBe("1234567890.123456");
+  });
+
+  it("falls back to session threadId when no explicit threadId and same recipient", () => {
+    const plan = resolveAgentDeliveryPlan({
+      sessionEntry: {
+        deliveryContext: {
+          channel: "slack",
+          to: "C0123456789",
+          threadId: "9999999999.999999",
+          lastTo: "C0123456789",
+        },
+      },
+      requestedChannel: "slack",
+      explicitTo: undefined,
+      explicitThreadId: undefined,
+      accountId: undefined,
+      wantsDelivery: true,
+    });
+
+    expect(plan.resolvedThreadId).toBe("9999999999.999999");
+  });
+
+  it("ignores session threadId when recipient changed", () => {
+    // Scenario: last conversation was with D9999999999 (DM) in a thread,
+    // but now we explicitly want to send to C0123456789 (channel).
+    // The threadId from the DM conversation should NOT be used for the channel.
+    const plan = resolveAgentDeliveryPlan({
+      sessionEntry: {
+        deliveryContext: {
+          channel: "slack",
+          to: "D9999999999",
+          threadId: "9999999999.999999",
+        },
+      },
+      requestedChannel: "slack",
+      explicitTo: "C0123456789",
+      explicitThreadId: undefined,
+      accountId: undefined,
+      wantsDelivery: true,
+    });
+
+    expect(plan.resolvedTo).toBe("C0123456789");
+    expect(plan.resolvedThreadId).toBeUndefined();
+  });
 });
