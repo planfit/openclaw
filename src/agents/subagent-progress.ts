@@ -39,6 +39,9 @@ type ProgressState = {
   lastParentReportAt: number;
   startedAt: number;
   slackStartMessageTs?: string;
+  lastToolEventAt: number;
+  stalledNotified: boolean;
+  stallCheckInterval: NodeJS.Timeout | null;
 };
 
 function buildToolSummaryLine(toolName: string, args: unknown): string {
@@ -64,11 +67,15 @@ function buildParentProgressMessage(config: SubagentProgressConfig, state: Progr
     ? `Currently: ${state.currentDetail || state.currentTool}`
     : "Idle";
 
+  const lastActivityMs = Date.now() - state.lastToolEventAt;
+  const lastActivitySec = Math.round(lastActivityMs / 1000);
+
   return [
     `Subagent "${label}" progress update:`,
     `- Tools used so far: ${toolsUsedLine}`,
     `- ${currentLine}`,
     `- Elapsed: ${elapsedSec}s`,
+    `- Last activity: ${lastActivitySec}s ago`,
     "",
     "Briefly update the user on the subagent's progress. One sentence max.",
   ].join("\n");
@@ -85,6 +92,9 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     lastChannelSendAt: 0,
     lastParentReportAt: Date.now(),
     startedAt: Date.now(),
+    lastToolEventAt: Date.now(),
+    stalledNotified: false,
+    stallCheckInterval: null,
   };
 
   let parentReportTimer: NodeJS.Timeout | null = null;
@@ -198,10 +208,73 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
         // Add ⏳ reaction to indicate subagent is in progress
         const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
         await reactSlackMessage(channelId, result.messageId, "hourglass_flowing_sand", {});
+
+        // Start stall check interval (30s)
+        state.stallCheckInterval = setInterval(() => {
+          void checkForStall();
+        }, 30_000);
+        state.stallCheckInterval.unref?.();
       }
     } catch (err) {
       defaultRuntime.log(
         `[subagent-progress] slack start message failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function checkForStall() {
+    if (!state.slackStartMessageTs) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    const timeSinceLastTool = Date.now() - state.lastToolEventAt;
+    if (timeSinceLastTool > 180_000 && !state.stalledNotified) {
+      try {
+        const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+        await removeSlackReaction(
+          channelId,
+          state.slackStartMessageTs,
+          "hourglass_flowing_sand",
+          {},
+        );
+        await reactSlackMessage(channelId, state.slackStartMessageTs, "warning", {});
+        state.stalledNotified = true;
+      } catch (err) {
+        defaultRuntime.log(
+          `[subagent-progress] stall warning failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
+  async function recoverFromStall() {
+    if (!state.stalledNotified) {
+      return;
+    }
+    if (!state.slackStartMessageTs) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    try {
+      const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "warning", {});
+      await reactSlackMessage(channelId, state.slackStartMessageTs, "hourglass_flowing_sand", {});
+      state.stalledNotified = false;
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] stall recovery failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -273,6 +346,10 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     const parentTool = typeof evt.data?.parentTool === "string" ? evt.data.parentTool : undefined;
 
     if (phase === "start") {
+      // Update last tool event timestamp and recover from stall if needed
+      state.lastToolEventAt = Date.now();
+      void recoverFromStall();
+
       // Track tool usage count
       state.toolCounts.set(toolName, (state.toolCounts.get(toolName) ?? 0) + 1);
       state.currentTool = toolName;
@@ -307,6 +384,10 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     if (parentReportTimer) {
       clearTimeout(parentReportTimer);
       parentReportTimer = null;
+    }
+    if (state.stallCheckInterval) {
+      clearInterval(state.stallCheckInterval);
+      state.stallCheckInterval = null;
     }
   };
 }

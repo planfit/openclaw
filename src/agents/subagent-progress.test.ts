@@ -509,4 +509,212 @@ describe("subscribeSubagentProgress", () => {
       expect(capturedListener).toBeNull();
     });
   });
+
+  describe("Stall detection", () => {
+    it("should start stall check interval after Slack start message", async () => {
+      const setIntervalSpy = vi.spyOn(global, "setInterval");
+
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "channel:C123" },
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Verify setInterval was called with 30s (30000ms)
+      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
+
+      setIntervalSpy.mockRestore();
+    });
+
+    it("should add warning reaction when stalled for 180s", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "channel:C123" },
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Clear mocks after start
+      reactSlackMessageMock.mockClear();
+      removeSlackReactionMock.mockClear();
+
+      // Advance 210s with no tool events (180s stall threshold + 30s for next check)
+      await vi.advanceTimersByTimeAsync(210_000);
+
+      // Should have removed hourglass and added warning
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "hourglass_flowing_sand",
+        {},
+      );
+      expect(reactSlackMessageMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "warning",
+        {},
+      );
+    });
+
+    it("should recover from stall when tool event arrives", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "channel:C123" },
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Advance 210s to trigger stall (180s stall threshold + 30s for next check)
+      await vi.advanceTimersByTimeAsync(210_000);
+
+      // Clear mocks
+      reactSlackMessageMock.mockClear();
+      removeSlackReactionMock.mockClear();
+
+      // Fire tool event to recover
+      emitToolEvent("run-1", "start", "read", { args: { path: "test.ts" } });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should have removed warning and restored hourglass
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "warning",
+        {},
+      );
+      expect(reactSlackMessageMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "hourglass_flowing_sand",
+        {},
+      );
+    });
+
+    it("should clear stall check interval on cleanup", async () => {
+      const clearIntervalSpy = vi.spyOn(global, "clearInterval");
+
+      const stop = subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "channel:C123" },
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      stop();
+
+      // Verify clearInterval was called
+      expect(clearIntervalSpy).toHaveBeenCalled();
+
+      clearIntervalSpy.mockRestore();
+    });
+
+    it("should skip stall check when suppressChannelRelay is true", async () => {
+      const setIntervalSpy = vi.spyOn(global, "setInterval");
+
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "channel:C123" },
+        suppressChannelRelay: true,
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Verify setInterval was NOT called because suppressChannelRelay is true
+      expect(setIntervalSpy).not.toHaveBeenCalled();
+
+      setIntervalSpy.mockRestore();
+    });
+
+    it("should update lastToolEventAt on tool events", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        requesterOrigin: { channel: "slack", to: "channel:C123" },
+      });
+
+      emitLifecycleEvent("run-1", "start");
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Clear mocks
+      reactSlackMessageMock.mockClear();
+      removeSlackReactionMock.mockClear();
+
+      // Advance 100s
+      await vi.advanceTimersByTimeAsync(100_000);
+
+      // Fire tool event (this should update lastToolEventAt)
+      emitToolEvent("run-1", "start", "read", { args: { path: "test.ts" } });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Advance another 100s (total 200s from start, but only 100s since last tool event)
+      await vi.advanceTimersByTimeAsync(100_000);
+
+      // Should NOT have triggered stall warning yet (only 100s since last tool event)
+      expect(reactSlackMessageMock).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        "warning",
+        expect.anything(),
+      );
+
+      // Advance another 110s (now 210s since last tool event, ensuring interval check happens)
+      await vi.advanceTimersByTimeAsync(110_000);
+
+      // NOW should trigger stall warning
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "hourglass_flowing_sand",
+        {},
+      );
+      expect(reactSlackMessageMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "warning",
+        {},
+      );
+    });
+  });
+
+  describe("Progress report with last activity", () => {
+    it("should include last activity time in parent progress message", async () => {
+      subscribeSubagentProgress({
+        runId: "run-1",
+        childSessionKey: "agent:main:subagent:test",
+        requesterSessionKey: "agent:main:main",
+        label: "test-task",
+        parentReportIntervalMs: 10_000,
+      });
+
+      emitToolEvent("run-1", "start", "read", { args: { path: "src/foo.ts" } });
+
+      // Advance 5 seconds
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      // Advance past the parent report interval
+      await vi.advanceTimersByTimeAsync(5_001);
+
+      expect(maybeQueueMock).toHaveBeenCalledTimes(1);
+      const queueArgs = maybeQueueMock.mock.calls[0][0] as { triggerMessage: string };
+      expect(queueArgs.triggerMessage).toContain("Last activity:");
+      expect(queueArgs.triggerMessage).toMatch(/Last activity: \d+s ago/);
+    });
+  });
 });
