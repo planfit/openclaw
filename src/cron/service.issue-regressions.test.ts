@@ -335,8 +335,12 @@ describe("Cron issue regressions", () => {
       .filter((evt) => evt.action === "started")
       .map((evt) => evt.runAtMs);
 
+    // Jobs execute concurrently via Promise.all. Both start at the same
+    // `now` value, but the mock callbacks run synchronously in map order
+    // so the first mock bumps `now` before the second callback captures
+    // its startedAt.
     expect(firstDone?.state.lastRunAtMs).toBe(dueAt);
-    expect(firstDone?.state.lastDurationMs).toBe(50);
+    expect(firstDone?.state.lastDurationMs).toBe(70);
     expect(secondDone?.state.lastRunAtMs).toBe(dueAt + 50);
     expect(secondDone?.state.lastDurationMs).toBe(20);
     expect(startedAtEvents).toEqual([dueAt, dueAt + 50]);

@@ -195,63 +195,56 @@ export async function onTimer(state: CronServiceState) {
       }));
     });
 
-    const results: Array<{
-      jobId: string;
-      status: "ok" | "error" | "skipped";
-      error?: string;
-      summary?: string;
-      sessionId?: string;
-      sessionKey?: string;
-      startedAt: number;
-      endedAt: number;
-    }> = [];
-
-    for (let i = 0; i < dueJobs.length; i++) {
-      const { id, job } = dueJobs[i];
-      state.deps.log.info(
-        { jobId: id, jobName: job.name, index: i + 1, total: dueJobs.length },
-        "cron: executing job",
-      );
-      const startedAt = state.deps.nowMs();
-      job.state.runningAtMs = startedAt;
-      emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
-
-      const jobTimeoutMs =
-        job.payload.kind === "agentTurn" && typeof job.payload.timeoutSeconds === "number"
-          ? job.payload.timeoutSeconds * 1_000
-          : DEFAULT_JOB_TIMEOUT_MS;
-
-      try {
-        let timeoutId: NodeJS.Timeout;
-        const result = await Promise.race([
-          executeJobCore(state, job),
-          new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(
-              () => reject(new Error("cron: job execution timed out")),
-              jobTimeoutMs,
-            );
-          }),
-        ]).finally(() => clearTimeout(timeoutId!));
-        const endedAt = state.deps.nowMs();
+    // Execute all due jobs concurrently. Isolated jobs spawn independent
+    // subagent processes so there is no reason to serialize them. Each job
+    // still has its own per-job timeout via Promise.race.
+    const results = await Promise.all(
+      dueJobs.map(async ({ id, job }, i) => {
         state.deps.log.info(
-          { jobId: id, status: result.status, durationMs: endedAt - startedAt },
-          "cron: job execution completed",
+          { jobId: id, jobName: job.name, index: i + 1, total: dueJobs.length },
+          "cron: executing job",
         );
-        results.push({ jobId: id, ...result, startedAt, endedAt });
-      } catch (err) {
-        state.deps.log.warn(
-          { jobId: id, jobName: job.name, timeoutMs: jobTimeoutMs },
-          `cron: job failed: ${String(err)}`,
-        );
-        results.push({
-          jobId: id,
-          status: "error",
-          error: String(err),
-          startedAt,
-          endedAt: state.deps.nowMs(),
-        });
-      }
-    }
+        const startedAt = state.deps.nowMs();
+        job.state.runningAtMs = startedAt;
+        emit(state, { jobId: job.id, action: "started", runAtMs: startedAt });
+
+        const jobTimeoutMs =
+          job.payload.kind === "agentTurn" && typeof job.payload.timeoutSeconds === "number"
+            ? job.payload.timeoutSeconds * 1_000
+            : DEFAULT_JOB_TIMEOUT_MS;
+
+        try {
+          let timeoutId: NodeJS.Timeout;
+          const result = await Promise.race([
+            executeJobCore(state, job),
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error("cron: job execution timed out")),
+                jobTimeoutMs,
+              );
+            }),
+          ]).finally(() => clearTimeout(timeoutId!));
+          const endedAt = state.deps.nowMs();
+          state.deps.log.info(
+            { jobId: id, status: result.status, durationMs: endedAt - startedAt },
+            "cron: job execution completed",
+          );
+          return { jobId: id, ...result, startedAt, endedAt };
+        } catch (err) {
+          state.deps.log.warn(
+            { jobId: id, jobName: job.name, timeoutMs: jobTimeoutMs },
+            `cron: job failed: ${String(err)}`,
+          );
+          return {
+            jobId: id,
+            status: "error" as const,
+            error: String(err),
+            startedAt,
+            endedAt: state.deps.nowMs(),
+          };
+        }
+      }),
+    );
 
     if (results.length > 0) {
       await locked(state, async () => {
