@@ -250,6 +250,10 @@ export async function onTimer(state: CronServiceState) {
       await locked(state, async () => {
         await ensureLoaded(state, { forceReload: true, skipRecompute: true });
 
+        // Create a unified batch time for all concurrent jobs to ensure they
+        // all get the same nextRunAtMs calculation (#11452).
+        const batchEndedAt = state.deps.nowMs();
+
         for (const result of results) {
           const job = state.store?.jobs.find((j) => j.id === result.jobId);
           if (!job) {
@@ -260,7 +264,7 @@ export async function onTimer(state: CronServiceState) {
             status: result.status,
             error: result.error,
             startedAt: result.startedAt,
-            endedAt: result.endedAt,
+            endedAt: batchEndedAt,
           });
 
           emit(state, {
