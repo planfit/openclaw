@@ -196,12 +196,8 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       if (result.messageId) {
         state.slackStartMessageTs = result.messageId;
         // Add ⏳ reaction to indicate subagent is in progress
-        await reactSlackMessage(
-          config.requesterOrigin.to,
-          result.messageId,
-          "hourglass_flowing_sand",
-          {},
-        );
+        const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+        await reactSlackMessage(channelId, result.messageId, "hourglass_flowing_sand", {});
       }
     } catch (err) {
       defaultRuntime.log(
@@ -222,16 +218,12 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     }
 
     try {
+      const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
       // Remove ⏳ reaction
-      await removeSlackReaction(
-        config.requesterOrigin.to,
-        state.slackStartMessageTs,
-        "hourglass_flowing_sand",
-        {},
-      );
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "hourglass_flowing_sand", {});
       // Add ✅ or ❌ based on success/failure
       const emoji = success ? "white_check_mark" : "x";
-      await reactSlackMessage(config.requesterOrigin.to, state.slackStartMessageTs, emoji, {});
+      await reactSlackMessage(channelId, state.slackStartMessageTs, emoji, {});
     } catch (err) {
       defaultRuntime.log(
         `[subagent-progress] slack reaction update failed: ${err instanceof Error ? err.message : String(err)}`,
