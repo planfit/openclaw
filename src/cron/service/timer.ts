@@ -23,6 +23,15 @@ const MAX_TIMER_DELAY_MS = 60_000;
 const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000; // 10 minutes
 
 /**
+ * Tolerance window (in ms) for considering jobs "due" at the same time.
+ * Jobs whose nextRunAtMs falls within this window of the current time
+ * will be executed together in the same tick, ensuring they receive
+ * the same batchEndedAt and thus the same computed nextRunAtMs.
+ * This prevents anchorMs drift from causing concurrent jobs to diverge.
+ */
+const TICK_TOLERANCE_MS = 100;
+
+/**
  * Exponential backoff delays (in ms) indexed by consecutive error count.
  * After the last entry the delay stays constant.
  */
@@ -254,6 +263,8 @@ export async function onTimer(state: CronServiceState) {
         // all get the same nextRunAtMs calculation (#11452).
         const batchEndedAt = state.deps.nowMs();
 
+        const jobsToDelete: string[] = [];
+
         for (const result of results) {
           const job = state.store?.jobs.find((j) => j.id === result.jobId);
           if (!job) {
@@ -266,6 +277,36 @@ export async function onTimer(state: CronServiceState) {
             startedAt: result.startedAt,
             endedAt: batchEndedAt,
           });
+
+          if (shouldDelete) {
+            jobsToDelete.push(job.id);
+          }
+        }
+
+        // For all jobs in this batch that have nextRunAtMs computed,
+        // unify them to the earliest one to prevent anchorMs drift (#11452).
+        const batchJobIds = new Set(results.map((r) => r.jobId));
+        const batchJobs =
+          state.store?.jobs.filter(
+            (j) =>
+              batchJobIds.has(j.id) &&
+              !jobsToDelete.includes(j.id) &&
+              typeof j.state.nextRunAtMs === "number",
+          ) ?? [];
+
+        if (batchJobs.length > 1) {
+          const earliestNextRun = Math.min(...batchJobs.map((j) => j.state.nextRunAtMs!));
+          for (const job of batchJobs) {
+            job.state.nextRunAtMs = earliestNextRun;
+          }
+        }
+
+        // Emit events after unifying nextRunAtMs
+        for (const result of results) {
+          const job = state.store?.jobs.find((j) => j.id === result.jobId);
+          if (!job) {
+            continue;
+          }
 
           emit(state, {
             jobId: job.id,
@@ -280,7 +321,7 @@ export async function onTimer(state: CronServiceState) {
             nextRunAtMs: job.state.nextRunAtMs,
           });
 
-          if (shouldDelete && state.store) {
+          if (jobsToDelete.includes(job.id) && state.store) {
             state.store.jobs = state.store.jobs.filter((j) => j.id !== job.id);
             emit(state, { jobId: job.id, action: "removed" });
           }
@@ -333,6 +374,30 @@ function findDueJobs(state: CronServiceState): CronJob[] {
     return [];
   }
   const now = state.deps.nowMs();
+  // Find the earliest nextRunAtMs among all eligible jobs
+  let earliestDue: number | undefined;
+  for (const j of state.store.jobs) {
+    if (!j.state) {
+      j.state = {};
+    }
+    if (!j.enabled || typeof j.state.runningAtMs === "number") {
+      continue;
+    }
+    const next = j.state.nextRunAtMs;
+    if (typeof next === "number" && now >= next) {
+      if (earliestDue === undefined || next < earliestDue) {
+        earliestDue = next;
+      }
+    }
+  }
+
+  // If no jobs are due, return empty
+  if (earliestDue === undefined) {
+    return [];
+  }
+
+  // Return all jobs within TICK_TOLERANCE_MS of the earliest due job
+  const toleranceWindow = earliestDue + TICK_TOLERANCE_MS;
   return state.store.jobs.filter((j) => {
     if (!j.state) {
       j.state = {};
@@ -344,7 +409,7 @@ function findDueJobs(state: CronServiceState): CronJob[] {
       return false;
     }
     const next = j.state.nextRunAtMs;
-    return typeof next === "number" && now >= next;
+    return typeof next === "number" && now >= next && next <= toleranceWindow;
   });
 }
 

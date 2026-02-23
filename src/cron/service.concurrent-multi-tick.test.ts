@@ -171,4 +171,101 @@ describe("CronService concurrent multi-tick jobs", () => {
     cron.stop();
     await store.cleanup();
   });
+
+  it("handles jobs with different anchorMs that fall within tolerance window", async () => {
+    const store = await makeStorePath();
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+
+    const runIsolatedAgentJob = vi.fn(async ({ job }: { job: CronJob; message: string }) => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      return { status: "ok" as const, summary: `done-${job.id}` };
+    });
+
+    const baseTime = Date.parse("2025-12-13T00:00:00.000Z");
+    // Job1 and Job2 have anchorMs that differ by 1ms
+    // This creates a situation where their nextRunAtMs differ by 1ms
+    // but they should still execute together in the same tick
+    const anchor1 = baseTime - 60_000;
+    const anchor2 = baseTime - 60_000 + 1; // 1ms later
+
+    const firstDueAt1 = baseTime + 10_000; // Job1 due at T+10000
+    const firstDueAt2 = baseTime + 10_001; // Job2 due at T+10001 (1ms later)
+
+    await fs.mkdir(path.dirname(store.storePath), { recursive: true });
+    await fs.writeFile(
+      store.storePath,
+      JSON.stringify(
+        {
+          version: 1,
+          jobs: [
+            {
+              id: "iso-job-1",
+              name: "isolated job 1",
+              enabled: true,
+              createdAtMs: baseTime - 60_000,
+              updatedAtMs: baseTime - 60_000,
+              schedule: { kind: "every", everyMs: 60_000, anchorMs: anchor1 },
+              sessionTarget: "isolated",
+              wakeMode: "next-heartbeat",
+              payload: { kind: "agentTurn", message: "do task 1" },
+              delivery: { mode: "announce" },
+              state: { nextRunAtMs: firstDueAt1 },
+            },
+            {
+              id: "iso-job-2",
+              name: "isolated job 2",
+              enabled: true,
+              createdAtMs: baseTime - 60_000,
+              updatedAtMs: baseTime - 60_000,
+              schedule: { kind: "every", everyMs: 60_000, anchorMs: anchor2 },
+              sessionTarget: "isolated",
+              wakeMode: "next-heartbeat",
+              payload: { kind: "agentTurn", message: "do task 2" },
+              delivery: { mode: "announce" },
+              state: { nextRunAtMs: firstDueAt2 },
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const cron = new CronService({
+      storePath: store.storePath,
+      cronEnabled: true,
+      log: noopLogger,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
+      runIsolatedAgentJob,
+    });
+
+    await cron.start();
+
+    // Advance time to firstDueAt1 + 5ms
+    // At this point:
+    // - Job1 is due (nextRunAtMs = firstDueAt1 = T+10000)
+    // - Job2 is NOT due yet (nextRunAtMs = firstDueAt2 = T+10001)
+    // But both should execute together because they're within tolerance
+    vi.setSystemTime(new Date(firstDueAt1 + 5));
+    await vi.runOnlyPendingTimersAsync();
+
+    // Wait for both jobs to complete
+    while (runIsolatedAgentJob.mock.calls.length < 2) {
+      await vi.runOnlyPendingTimersAsync();
+    }
+
+    // Both jobs should have executed in the same tick
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(2);
+
+    // Both jobs should have the SAME nextRunAtMs after the tick
+    const jobs = await cron.list({ includeDisabled: true });
+    const nextRuns = jobs.map((j) => j.state.nextRunAtMs).toSorted();
+    expect(nextRuns[0]).toBe(nextRuns[1]);
+
+    cron.stop();
+    await store.cleanup();
+  });
 });
