@@ -6,6 +6,7 @@ vi.mock("./run/attempt.js", () => ({
 
 vi.mock("./compact.js", () => ({
   compactEmbeddedPiSessionDirect: vi.fn(),
+  resolveWorkflowCompactionHint: vi.fn(async () => undefined),
 }));
 
 vi.mock("./model.js", () => ({
