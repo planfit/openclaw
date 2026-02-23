@@ -284,7 +284,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       defaultRuntime.log(`[subagent-progress] ${summaryLine} (runId=${config.runId})`);
 
       // Relay to channel (throttled), but skip internal SDK tool events
-      if (!parentTool) {
+      if (!parentTool && toolName !== "claude_code") {
         void relayToChannel(summaryLine);
       }
 
@@ -292,7 +292,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       scheduleParentReport();
     } else if (phase === "result") {
       const isError = Boolean(evt.data?.isError);
-      if (isError && !parentTool) {
+      if (isError && !parentTool && toolName !== "claude_code") {
         const errorLine = `:x: Tool failed: ${toolName}`;
         defaultRuntime.log(`[subagent-progress] ${errorLine} (runId=${config.runId})`);
         void relayToChannel(errorLine);
