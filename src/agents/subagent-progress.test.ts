@@ -12,6 +12,8 @@ const onAgentEventMock = vi.fn((listener: (evt: AgentEventPayload) => void) => {
 
 vi.mock("../infra/agent-events.js", () => ({
   onAgentEvent: (...args: unknown[]) => onAgentEventMock(...(args as [never])),
+  resolveRunIdBySessionKey: () => undefined,
+  getAgentRunContext: () => undefined,
 }));
 
 const routeReplyMock = vi.fn(async () => ({ ok: true }));
@@ -258,7 +260,7 @@ describe("subscribeSubagentProgress", () => {
     expect(maybeQueueMock).not.toHaveBeenCalled();
   });
 
-  it("processes tool events with parentTool field from claude_code", async () => {
+  it("skips channel relay for tool events with parentTool field", async () => {
     subscribeSubagentProgress({
       runId: "run-1",
       childSessionKey: "agent:main:subagent:test",
@@ -266,18 +268,16 @@ describe("subscribeSubagentProgress", () => {
       requesterOrigin: { channel: "slack", to: "C123" },
     });
 
-    // Simulate a claude_code internal tool event with parentTool field and args
+    // Simulate a claude_code internal tool event with parentTool field — these
+    // are implementation details of SDK-based tools and should not be relayed.
     emitToolEvent("run-1", "start", "Read", {
       args: { path: "src/foo.ts" },
       parentTool: "claude_code",
     });
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(routeReplyMock).toHaveBeenCalledTimes(1);
-    const callArgs = routeReplyMock.mock.calls[0][0] as { payload: { text: string } };
-    expect(callArgs.payload.text).toContain("Read");
-    // args.path should be resolved by resolveToolDisplay into the summary
-    expect(callArgs.payload.text).toContain("src/foo.ts");
+    // Channel relay should be skipped for parentTool events
+    expect(routeReplyMock).not.toHaveBeenCalled();
   });
 
   it("tracks tool counts correctly across multiple starts", async () => {

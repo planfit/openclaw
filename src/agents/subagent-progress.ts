@@ -107,7 +107,9 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     const parentRunId = resolveRunIdBySessionKey(config.requesterSessionKey);
     if (parentRunId) {
       const parentCtx = getAgentRunContext(parentRunId);
-      if (parentCtx?.suppressToolSummaries) {
+      // If parentCtx is undefined, registerAgentRunContext() hasn't run yet —
+      // default to suppressing so early tool events don't leak through.
+      if (!parentCtx || parentCtx.suppressToolSummaries) {
         return true;
       }
     }
@@ -184,6 +186,11 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     }
     const toolName = normalizeToolName(rawName);
 
+    // Skip internal tool events from SDK-based tools (e.g. claude_code's internal
+    // Read/Write/Glob). These are implementation details that shouldn't be relayed
+    // to the channel — only the parent tool itself gets a summary via emitToolSummary.
+    const parentTool = typeof evt.data?.parentTool === "string" ? evt.data.parentTool : undefined;
+
     if (phase === "start") {
       // Track tool usage count
       state.toolCounts.set(toolName, (state.toolCounts.get(toolName) ?? 0) + 1);
@@ -195,14 +202,16 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
 
       defaultRuntime.log(`[subagent-progress] ${summaryLine} (runId=${config.runId})`);
 
-      // Relay to channel (throttled)
-      void relayToChannel(summaryLine);
+      // Relay to channel (throttled), but skip internal SDK tool events
+      if (!parentTool) {
+        void relayToChannel(summaryLine);
+      }
 
       // Schedule parent report if not already scheduled
       scheduleParentReport();
     } else if (phase === "result") {
       const isError = Boolean(evt.data?.isError);
-      if (isError) {
+      if (isError && !parentTool) {
         const errorLine = `❌ Tool failed: ${toolName}`;
         defaultRuntime.log(`[subagent-progress] ${errorLine} (runId=${config.runId})`);
         void relayToChannel(errorLine);
