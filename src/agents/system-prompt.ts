@@ -578,13 +578,12 @@ export function buildAgentSystemPrompt(params: {
       `When you have nothing to say, respond with ONLY: ${SILENT_REPLY_TOKEN}`,
       "",
       "⚠️ Rules:",
-      "- It must be your ENTIRE message — nothing else",
-      `- Never append it to an actual response (never include "${SILENT_REPLY_TOKEN}" in real replies)`,
+      `- ${SILENT_REPLY_TOKEN} at the end of your message suppresses delivery`,
       "- Never wrap it in markdown or code blocks",
       "",
-      `❌ Wrong: "Here's help... ${SILENT_REPLY_TOKEN}"`,
-      `❌ Wrong: "${SILENT_REPLY_TOKEN}"`,
+      `❌ Wrong: "Here's help... ${SILENT_REPLY_TOKEN}" (real reply lost)`,
       `✅ Right: ${SILENT_REPLY_TOKEN}`,
+      `✅ Right: "Internal note only.\\n${SILENT_REPLY_TOKEN}"`,
       "",
     );
   }

@@ -11,5 +11,5 @@ export function isSilentReplyText(
     return false;
   }
   const escaped = escapeRegExp(token);
-  return new RegExp(`^\\s*${escaped}\\s*$`).test(text);
+  return new RegExp(`${escaped}\\s*$`).test(text);
 }
