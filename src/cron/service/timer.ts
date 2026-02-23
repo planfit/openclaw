@@ -409,7 +409,7 @@ function findDueJobs(state: CronServiceState): CronJob[] {
       return false;
     }
     const next = j.state.nextRunAtMs;
-    return typeof next === "number" && now >= next && next <= toleranceWindow;
+    return typeof next === "number" && next <= toleranceWindow;
   });
 }
 
