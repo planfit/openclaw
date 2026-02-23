@@ -298,8 +298,15 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
   const { dispatcher, replyOptions, markDispatchIdle } = createReplyDispatcherWithTyping({
     ...prefixOptions,
     humanDelay: resolveHumanDelayConfig(cfg, route.agentId) ?? { mode: "natural" },
-    deliver: async (payload) => {
+    deliver: async (payload, info) => {
       if (useStreaming) {
+        // Block replies should be delivered as normal messages (not via stream)
+        // so they appear immediately before tool execution, rather than waiting
+        // for the stream to be stopped at the end of the turn.
+        if (info?.kind === "block") {
+          await deliverNormally(payload, streamSession?.threadTs);
+          return;
+        }
         await deliverWithStreaming(payload);
         return;
       }
