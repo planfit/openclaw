@@ -185,7 +185,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
 
     try {
       const result = await routeReply({
-        payload: { text: "🧩 Claude Code" },
+        payload: { text: config.label ? `🧩 Claude Code — ${config.label}` : "🧩 Claude Code" },
         channel: config.requesterOrigin.channel,
         to: config.requesterOrigin.to,
         sessionKey: config.requesterSessionKey,
