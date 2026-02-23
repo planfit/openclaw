@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../../config/config.js";
 import type { CommandHandler } from "./commands-types.js";
+import { resolveWorkflowCompactionHint } from "../../agents/pi-embedded-runner/compact.js";
 import {
   abortEmbeddedPiRun,
   compactEmbeddedPiSession,
@@ -64,13 +65,18 @@ export const handleCompactCommand: CommandHandler = async (params) => {
     abortEmbeddedPiRun(sessionId);
     await waitForEmbeddedPiRunEnd(sessionId, 15_000);
   }
-  const customInstructions = extractCompactInstructions({
+  const userInstructions = extractCompactInstructions({
     rawBody: params.ctx.CommandBody ?? params.ctx.RawBody ?? params.ctx.Body,
     ctx: params.ctx,
     cfg: params.cfg,
     agentId: params.agentId,
     isGroup: params.isGroup,
   });
+  const workflowHint = await resolveWorkflowCompactionHint(params.workspaceDir);
+  const customInstructions =
+    userInstructions && workflowHint
+      ? `${userInstructions}\n\n${workflowHint}`
+      : (userInstructions ?? workflowHint);
   const result = await compactEmbeddedPiSession({
     sessionId,
     sessionKey: params.sessionKey,

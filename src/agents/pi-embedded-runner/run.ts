@@ -48,7 +48,7 @@ import {
 } from "../pi-embedded-helpers.js";
 import { normalizeUsage, type UsageLike } from "../usage.js";
 import { redactRunIdentifier, resolveRunWorkspaceDir } from "../workspace-run.js";
-import { compactEmbeddedPiSessionDirect } from "./compact.js";
+import { compactEmbeddedPiSessionDirect, resolveWorkflowCompactionHint } from "./compact.js";
 import { resolveGlobalLane, resolveSessionLane } from "./lanes.js";
 import { log } from "./logger.js";
 import { resolveModel } from "./model.js";
@@ -561,6 +561,7 @@ export async function runEmbeddedPiAgent(
               log.warn(
                 `context overflow detected (attempt ${overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); attempting auto-compaction for ${provider}/${modelId}`,
               );
+              const workflowHint = await resolveWorkflowCompactionHint(resolvedWorkspace);
               const compactResult = await compactEmbeddedPiSessionDirect({
                 sessionId: params.sessionId,
                 sessionKey: params.sessionKey,
@@ -581,6 +582,7 @@ export async function runEmbeddedPiAgent(
                 bashElevated: params.bashElevated,
                 extraSystemPrompt: params.extraSystemPrompt,
                 ownerNumbers: params.ownerNumbers,
+                customInstructions: workflowHint,
               });
               if (compactResult.compacted) {
                 autoCompactionCount += 1;

@@ -73,6 +73,64 @@ import {
 import { splitSdkTools } from "./tool-split.js";
 import { describeUnknownError, mapThinkingLevel, resolveExecToolDefaults } from "./utils.js";
 
+/**
+ * Reads active workflow state files from `{workspaceDir}/state/active-workflow-*.json`
+ * and returns a formatted hint string for compaction instructions, or undefined if none exist.
+ */
+export async function resolveWorkflowCompactionHint(
+  workspaceDir: string,
+): Promise<string | undefined> {
+  const stateDir = `${workspaceDir}/state`;
+  let entries: string[];
+  try {
+    entries = await fs.readdir(stateDir);
+  } catch {
+    return undefined;
+  }
+  const workflowFiles = entries.filter(
+    (f) => f.startsWith("active-workflow-") && f.endsWith(".json"),
+  );
+  if (workflowFiles.length === 0) {
+    return undefined;
+  }
+  const summaries: string[] = [];
+  for (const file of workflowFiles) {
+    try {
+      const raw = await fs.readFile(`${stateDir}/${file}`, "utf-8");
+      const data = JSON.parse(raw);
+      const parts: string[] = [];
+      if (data.id) {
+        parts.push(`id=${data.id}`);
+      }
+      if (data.title) {
+        parts.push(`title="${data.title}"`);
+      }
+      if (data.phase != null) {
+        parts.push(`phase=${data.phase}`);
+      }
+      if (data.phaseName) {
+        parts.push(`phaseName="${data.phaseName}"`);
+      }
+      if (data.branch) {
+        parts.push(`branch=${data.branch}`);
+      }
+      if (data.skillFiles?.current) {
+        parts.push(`skillFile=${data.skillFiles.current}`);
+      }
+      if (parts.length > 0) {
+        summaries.push(parts.join(" "));
+      }
+    } catch {
+      // Skip unreadable/invalid files
+    }
+  }
+  if (summaries.length === 0) {
+    return undefined;
+  }
+  const lines = summaries.map((s) => `- ${s}`).join("\n");
+  return `Active workflow state (preserve across compaction):\n${lines}`;
+}
+
 export type CompactEmbeddedPiSessionParams = {
   sessionId: string;
   sessionKey?: string;
