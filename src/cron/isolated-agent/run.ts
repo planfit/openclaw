@@ -41,11 +41,7 @@ import {
   supportsXHighThinking,
 } from "../../auto-reply/thinking.js";
 import { createOutboundSendDeps, type CliDeps } from "../../cli/outbound-send-deps.js";
-import {
-  resolveAgentMainSessionKey,
-  resolveSessionTranscriptPath,
-  updateSessionStore,
-} from "../../config/sessions.js";
+import { resolveSessionTranscriptPath, updateSessionStore } from "../../config/sessions.js";
 import { registerAgentRunContext } from "../../infra/agent-events.js";
 import { deliverOutboundPayloads } from "../../infra/outbound/deliver.js";
 import { getRemoteSkillEligibility } from "../../infra/skills-remote.js";
@@ -58,6 +54,7 @@ import {
   isExternalHookSession,
 } from "../../security/external-content.js";
 import { resolveCronDeliveryPlan } from "../delivery.js";
+import { resolveDeliverySessionKey } from "./delivery-session-key.js";
 import { resolveDeliveryTarget } from "./delivery-target.js";
 import {
   isHeartbeatOnlyResponse,
@@ -545,9 +542,14 @@ export async function runCronIsolatedAgentTurn(params: {
         }
       }
     } else if (synthesizedText) {
-      const announceSessionKey = resolveAgentMainSessionKey({
-        cfg: params.cfg,
+      const announceSessionKey = resolveDeliverySessionKey({
         agentId,
+        delivery: {
+          channel: resolvedDelivery.channel,
+          to: resolvedDelivery.to,
+          threadId: resolvedDelivery.threadId ?? undefined,
+          accountId: resolvedDelivery.accountId,
+        },
       });
       const taskLabel =
         typeof params.job.name === "string" && params.job.name.trim()
@@ -562,7 +564,8 @@ export async function runCronIsolatedAgentTurn(params: {
             channel: resolvedDelivery.channel,
             to: resolvedDelivery.to,
             accountId: resolvedDelivery.accountId,
-            threadId: resolvedDelivery.threadId,
+            // Pass threadId if explicitly set (including undefined to clear)
+            ...(resolvedDelivery.threadId !== null && { threadId: resolvedDelivery.threadId }),
           },
           requesterDisplayKey: announceSessionKey,
           task: taskLabel,

@@ -78,7 +78,10 @@ async function resolveChannelId(
   recipient: SlackRecipient,
 ): Promise<{ channelId: string; isDm?: boolean }> {
   if (recipient.kind === "channel") {
-    return { channelId: recipient.id };
+    // Slack DM channel IDs start with "D" (e.g., D0AD49MLAR0)
+    // Mark them as DMs for proper handling
+    const isDm = recipient.id.startsWith("D");
+    return { channelId: recipient.id, isDm };
   }
   const response = await client.conversations.open({ users: recipient.id });
   const channelId = response.channel?.id;

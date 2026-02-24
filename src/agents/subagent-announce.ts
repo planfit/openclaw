@@ -114,21 +114,32 @@ function resolveAnnounceOrigin(
 
 async function sendAnnounce(item: AnnounceQueueItem) {
   const origin = item.origin;
-  // Pass empty string to explicitly mean "no thread", vs undefined which means "use session default"
+  // Resolve threadId: undefined means "use session default", empty string means "no thread"
   const threadId =
-    origin?.threadId != null && origin.threadId !== "" ? String(origin.threadId) : "";
+    origin?.threadId != null && origin.threadId !== ""
+      ? String(origin.threadId)
+      : origin?.threadId === ""
+        ? ""
+        : undefined;
+
+  const params: Record<string, unknown> = {
+    sessionKey: item.sessionKey,
+    message: item.prompt,
+    channel: origin?.channel,
+    accountId: origin?.accountId,
+    to: origin?.to,
+    deliver: true,
+    idempotencyKey: crypto.randomUUID(),
+  };
+
+  // Only include threadId if it's not undefined (allows gateway to use session default)
+  if (threadId !== undefined) {
+    params.threadId = threadId;
+  }
+
   await callGateway({
     method: "agent",
-    params: {
-      sessionKey: item.sessionKey,
-      message: item.prompt,
-      channel: origin?.channel,
-      accountId: origin?.accountId,
-      to: origin?.to,
-      threadId,
-      deliver: true,
-      idempotencyKey: crypto.randomUUID(),
-    },
+    params,
     expectFinal: true,
     timeoutMs: 60_000,
   });
@@ -527,25 +538,36 @@ export async function runSubagentAnnounceFlow(params: {
       const { entry } = loadRequesterSessionEntry(params.requesterSessionKey);
       directOrigin = deliveryContextFromSession(entry);
     }
+    // Resolve threadId: undefined means "use session default", empty string means "no thread"
+    const threadId =
+      directOrigin?.threadId != null && directOrigin.threadId !== ""
+        ? String(directOrigin.threadId)
+        : directOrigin?.threadId === ""
+          ? ""
+          : undefined;
+
     defaultRuntime.log(
       `[subagent-announce] gateway call: sessionKey=${params.requesterSessionKey} channel=${directOrigin?.channel} to=${directOrigin?.to} threadId=${String(directOrigin?.threadId ?? "undefined")}`,
     );
+
+    const gatewayParams: Record<string, unknown> = {
+      sessionKey: params.requesterSessionKey,
+      message: triggerMessage,
+      deliver: true,
+      channel: directOrigin?.channel,
+      accountId: directOrigin?.accountId,
+      to: directOrigin?.to,
+      idempotencyKey: crypto.randomUUID(),
+    };
+
+    // Only include threadId if it's not undefined (allows gateway to use session default)
+    if (threadId !== undefined) {
+      gatewayParams.threadId = threadId;
+    }
+
     await callGateway({
       method: "agent",
-      params: {
-        sessionKey: params.requesterSessionKey,
-        message: triggerMessage,
-        deliver: true,
-        channel: directOrigin?.channel,
-        accountId: directOrigin?.accountId,
-        to: directOrigin?.to,
-        // Pass empty string to explicitly mean "no thread", vs undefined which means "use session default"
-        threadId:
-          directOrigin?.threadId != null && directOrigin.threadId !== ""
-            ? String(directOrigin.threadId)
-            : "",
-        idempotencyKey: crypto.randomUUID(),
-      },
+      params: gatewayParams,
       expectFinal: true,
       timeoutMs: 60_000,
     });
