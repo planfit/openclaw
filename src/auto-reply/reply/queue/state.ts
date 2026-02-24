@@ -11,6 +11,7 @@ export type FollowupQueueState = {
   droppedCount: number;
   summaryLines: string[];
   lastRun?: FollowupRun["run"];
+  runFollowup?: (run: FollowupRun) => Promise<void>;
 };
 
 export const DEFAULT_QUEUE_DEBOUNCE_MS = 1000;

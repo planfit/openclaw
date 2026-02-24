@@ -1,3 +1,4 @@
+import { triggerDrainIfQueued } from "../../auto-reply/reply/queue.js";
 import {
   diagnosticLogger as diag,
   logMessageQueued,
@@ -132,6 +133,10 @@ export function clearActiveEmbeddedRun(sessionId: string, handle: EmbeddedPiQueu
       diag.debug(`run cleared: sessionId=${sessionId} totalActive=${ACTIVE_EMBEDDED_RUNS.size}`);
     }
     notifyEmbeddedRunEnded(sessionId);
+
+    // Trigger drain for any queued messages to prevent race condition
+    // where messages arrive between idle transition and scheduled drain
+    triggerDrainIfQueued(sessionId);
   } else {
     diag.debug(`run clear skipped: sessionId=${sessionId} reason=handle_mismatch`);
   }

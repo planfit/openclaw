@@ -18,6 +18,8 @@ export function scheduleFollowupDrain(
   if (!queue || queue.draining) {
     return;
   }
+  // Store the callback for potential race condition recovery
+  queue.runFollowup = runFollowup;
   queue.draining = true;
   void (async () => {
     try {
@@ -26,7 +28,7 @@ export function scheduleFollowupDrain(
         await waitForQueueDebounce(queue);
         if (queue.mode === "collect") {
           // Once the batch is mixed, never collect again within this drain.
-          // Prevents “collect after shift” collapsing different targets.
+          // Prevents "collect after shift" collapsing different targets.
           //
           // Debug: `pnpm test src/auto-reply/reply/queue.collect-routing.test.ts`
           if (forceIndividualCollect) {
@@ -151,4 +153,19 @@ export function scheduleFollowupDrain(
       }
     }
   })();
+}
+
+/**
+ * Triggers drain for a queue if it has items and a stored callback.
+ * This is used to prevent race conditions when transitioning to idle state.
+ */
+export function triggerDrainIfQueued(key: string): void {
+  const queue = FOLLOWUP_QUEUES.get(key);
+  if (!queue) {
+    return;
+  }
+  // Only trigger if there are items and we have a callback
+  if ((queue.items.length > 0 || queue.droppedCount > 0) && queue.runFollowup) {
+    scheduleFollowupDrain(key, queue.runFollowup);
+  }
 }
