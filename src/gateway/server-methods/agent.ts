@@ -314,10 +314,9 @@ export const agentHandlers: GatewayRequestHandlers = {
         : typeof request.to === "string" && request.to.trim()
           ? request.to.trim()
           : undefined;
+    // threadId: undefined → use session default, null → explicitly no thread, string → explicit thread
     const explicitThreadId =
-      typeof request.threadId === "string" && request.threadId.trim()
-        ? request.threadId.trim()
-        : undefined;
+      typeof request.threadId === "string" ? request.threadId.trim() || null : undefined;
     const deliveryPlan = resolveAgentDeliveryPlan({
       sessionEntry,
       requestedChannel: request.replyChannel ?? request.channel,
@@ -363,7 +362,12 @@ export const agentHandlers: GatewayRequestHandlers = {
     });
     respond(true, accepted, undefined, { runId });
 
-    const resolvedThreadId = explicitThreadId ?? deliveryPlan.resolvedThreadId;
+    const resolvedThreadId =
+      explicitThreadId !== undefined
+        ? explicitThreadId === null
+          ? undefined
+          : explicitThreadId
+        : deliveryPlan.resolvedThreadId;
 
     void agentCommand(
       {

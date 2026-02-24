@@ -91,12 +91,14 @@ export function resolveAgentDeliveryPlan(params: {
     resolvedTo = baseDelivery.lastTo;
   }
 
-  // When an explicit threadId is provided, use it.
+  // When an explicit threadId is provided, use it (null means "explicitly no thread").
   // Otherwise, only use session-derived threadId when delivering to the same recipient.
   // This prevents stale thread IDs from being sent to different targets (API errors).
   const resolvedThreadId =
     params.explicitThreadId !== undefined
-      ? params.explicitThreadId
+      ? params.explicitThreadId === null
+        ? undefined
+        : params.explicitThreadId
       : resolvedTo && resolvedTo === baseDelivery.lastTo
         ? baseDelivery.threadId
         : undefined;

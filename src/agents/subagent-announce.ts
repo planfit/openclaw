@@ -114,8 +114,9 @@ function resolveAnnounceOrigin(
 
 async function sendAnnounce(item: AnnounceQueueItem) {
   const origin = item.origin;
+  // Pass empty string to explicitly mean "no thread", vs undefined which means "use session default"
   const threadId =
-    origin?.threadId != null && origin.threadId !== "" ? String(origin.threadId) : undefined;
+    origin?.threadId != null && origin.threadId !== "" ? String(origin.threadId) : "";
   await callGateway({
     method: "agent",
     params: {
@@ -538,10 +539,11 @@ export async function runSubagentAnnounceFlow(params: {
         channel: directOrigin?.channel,
         accountId: directOrigin?.accountId,
         to: directOrigin?.to,
+        // Pass empty string to explicitly mean "no thread", vs undefined which means "use session default"
         threadId:
           directOrigin?.threadId != null && directOrigin.threadId !== ""
             ? String(directOrigin.threadId)
-            : undefined,
+            : "",
         idempotencyKey: crypto.randomUUID(),
       },
       expectFinal: true,
