@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChannelOutboundAdapter, ChannelPlugin } from "../../channels/plugins/types.js";
+import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../../gateway/protocol/client-info.js";
 import { createTestRegistry } from "../../test-utils/channel-plugins.js";
 const loadMessage = async () => await import("./message.js");
 
@@ -110,15 +111,15 @@ describe("gateway url override hardening", () => {
   });
 
   it("drops gateway url overrides in backend mode (SSRF hardening)", async () => {
-    void setRegistry(
+    const { sendMessage } = await loadMessage();
+    await setRegistry(
       createTestRegistry([
         {
           pluginId: "mattermost",
           source: "test",
-          plugin: {
-            ...createMattermostLikePlugin({ onSendText: () => {} }),
-            outbound: { deliveryMode: "gateway" },
-          },
+          plugin: createMattermostLikePlugin({
+            outbound: { deliveryMode: "gateway" } as ChannelOutboundAdapter,
+          }),
         },
       ]),
     );
@@ -189,6 +190,25 @@ const createMSTeamsPlugin = (params: {
     docsPath: "/channels/msteams",
     blurb: "Bot Framework; enterprise support.",
     aliases: params.aliases,
+  },
+  capabilities: { chatTypes: ["direct"] },
+  config: {
+    listAccountIds: () => [],
+    resolveAccount: () => ({}),
+  },
+  outbound: params.outbound,
+});
+
+const createMattermostLikePlugin = (params: {
+  outbound: ChannelOutboundAdapter;
+}): ChannelPlugin => ({
+  id: "mattermost",
+  meta: {
+    id: "mattermost",
+    label: "Mattermost",
+    selectionLabel: "Mattermost",
+    docsPath: "/channels/mattermost",
+    blurb: "Self-hosted team messaging.",
   },
   capabilities: { chatTypes: ["direct"] },
   config: {

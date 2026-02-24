@@ -73,7 +73,7 @@ describe("loginChutes", () => {
     expect(creds.email).toBe("local-user");
   });
 
-  it("supports manual flow with pasted code", async () => {
+  it("supports manual flow with pasted redirect URL", async () => {
     const fetchFn: typeof fetch = async (input) => {
       const url = urlToString(input);
       if (url === CHUTES_TOKEN_ENDPOINT) {
@@ -102,8 +102,10 @@ describe("loginChutes", () => {
         scopes: ["openid"],
       },
       manual: true,
+      createState: () => "test_state_manual",
       onAuth: async () => {},
-      onPrompt: async () => "code_manual",
+      onPrompt: async () =>
+        "http://127.0.0.1:1456/oauth-callback?code=code_manual&state=test_state_manual",
       fetchFn,
     });
 
@@ -154,7 +156,7 @@ describe("loginChutes", () => {
         expect(parsed.searchParams.get("state")).toBe("state_456");
         expect(parsed.searchParams.get("state")).not.toBe("verifier_123");
       },
-      onPrompt: async () => "code_manual",
+      onPrompt: async () => "http://127.0.0.1:1456/oauth-callback?code=code_manual&state=state_456",
       fetchFn,
     });
 

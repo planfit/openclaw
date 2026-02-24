@@ -565,7 +565,19 @@ describe("applyAuthChoice", () => {
     });
     vi.stubGlobal("fetch", fetchSpy);
 
-    const text = vi.fn().mockResolvedValue("code_manual");
+    let capturedState = "";
+    const runtimeLog = vi.fn((...args: unknown[]) => {
+      const msg = typeof args[0] === "string" ? args[0] : "";
+      const m = msg.match(/state=([a-f0-9]+)/);
+      if (m) {
+        capturedState = m[1];
+      }
+    });
+    const text = vi
+      .fn()
+      .mockImplementation(
+        async () => `http://127.0.0.1:1456/oauth-callback?code=code_manual&state=${capturedState}`,
+      );
     const select: WizardPrompter["select"] = vi.fn(
       async (params) => params.options[0]?.value as never,
     );
@@ -581,7 +593,7 @@ describe("applyAuthChoice", () => {
       progress: vi.fn(() => ({ update: noop, stop: noop })),
     };
     const runtime: RuntimeEnv = {
-      log: vi.fn(),
+      log: runtimeLog,
       error: vi.fn(),
       exit: vi.fn((code: number) => {
         throw new Error(`exit:${code}`);

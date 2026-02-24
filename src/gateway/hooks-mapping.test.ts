@@ -6,6 +6,22 @@ import { applyHookMappings, resolveHookMappings } from "./hooks-mapping.js";
 
 const baseUrl = new URL("http://127.0.0.1:18789/hooks/gmail");
 
+function createGmailAgentMapping(overrides: Record<string, unknown> = {}): {
+  id: string;
+  match: { path: string };
+  action: "agent";
+  messageTemplate: string;
+  [key: string]: unknown;
+} {
+  return {
+    id: "gmail-agent",
+    match: { path: "gmail" },
+    action: "agent" as const,
+    messageTemplate: "New email from {{messages[0].from}}",
+    ...overrides,
+  };
+}
+
 describe("hooks mapping", () => {
   it("resolves gmail preset", () => {
     const mappings = resolveHookMappings({ presets: ["gmail"] });

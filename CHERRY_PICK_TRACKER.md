@@ -2,6 +2,10 @@
 
 ## Status: IN PROGRESS
 
+> **Note**: 별도의 보안 P0 cherry-pick이 `cherry-pick/upstream-security-p0` 브랜치에서 완료됨.
+> 20개 보안 커밋 적용 (OC-02/06/07/22/25/53/65, SSRF 방어, prototype pollution 등).
+> 상세: `CHERRY_PICK_PROGRESS.md` 참조.
+
 | Phase                                    | Status  | Commits | Tag       |
 | ---------------------------------------- | ------- | ------- | --------- |
 | Phase 0: Prep                            | DONE    | -       | cp/base   |
