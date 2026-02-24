@@ -145,7 +145,7 @@ describe("runCronIsolatedAgentTurn", () => {
     });
   });
 
-  it("uses shared announce flow when heartbeat ack padding exceeds configured limit", async () => {
+  it("delivers directly when heartbeat ack padding exceeds configured limit", async () => {
     await withTempHome(async (home) => {
       const storePath = await writeSessionStore(home);
       const deps: CliDeps = {
@@ -191,8 +191,10 @@ describe("runCronIsolatedAgentTurn", () => {
       });
 
       expect(res.status).toBe("ok");
-      expect(runSubagentAnnounceFlow).toHaveBeenCalledTimes(1);
-      expect(deps.sendMessageTelegram).not.toHaveBeenCalled();
+      // Should deliver directly when delivery.to is set (even for heartbeat with padding)
+      expect(deps.sendMessageTelegram).toHaveBeenCalled();
+      // Should NOT use runSubagentAnnounceFlow
+      expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
     });
   });
 });
