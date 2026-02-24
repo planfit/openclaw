@@ -379,12 +379,18 @@ describe("subscribeSubagentProgress", () => {
       emitLifecycleEvent("run-1", "end");
       await vi.advanceTimersByTimeAsync(0);
 
-      // Should remove ⏳ reaction
-      expect(removeSlackReactionMock).toHaveBeenCalledTimes(1);
+      // Should remove ⏳ and ⚠️ reactions
+      expect(removeSlackReactionMock).toHaveBeenCalledTimes(2);
       expect(removeSlackReactionMock).toHaveBeenCalledWith(
         "C123",
         "1234567890.123456",
         "hourglass_flowing_sand",
+        {},
+      );
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "warning",
         {},
       );
 
@@ -417,12 +423,18 @@ describe("subscribeSubagentProgress", () => {
       emitLifecycleEvent("run-1", "error");
       await vi.advanceTimersByTimeAsync(0);
 
-      // Should remove ⏳ reaction
-      expect(removeSlackReactionMock).toHaveBeenCalledTimes(1);
+      // Should remove ⏳ and ⚠️ reactions
+      expect(removeSlackReactionMock).toHaveBeenCalledTimes(2);
       expect(removeSlackReactionMock).toHaveBeenCalledWith(
         "C123",
         "1234567890.123456",
         "hourglass_flowing_sand",
+        {},
+      );
+      expect(removeSlackReactionMock).toHaveBeenCalledWith(
+        "C123",
+        "1234567890.123456",
+        "warning",
         {},
       );
 

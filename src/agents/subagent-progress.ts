@@ -42,6 +42,7 @@ type ProgressState = {
   lastToolEventAt: number;
   stalledNotified: boolean;
   stallCheckInterval: NodeJS.Timeout | null;
+  completed: boolean;
 };
 
 function buildToolSummaryLine(toolName: string, args: unknown): string {
@@ -95,6 +96,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     lastToolEventAt: Date.now(),
     stalledNotified: false,
     stallCheckInterval: null,
+    completed: false,
   };
 
   let parentReportTimer: NodeJS.Timeout | null = null;
@@ -290,16 +292,68 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       return;
     }
 
+    state.completed = true;
+    // Stop stall checking on completion
+    if (state.stallCheckInterval) {
+      clearInterval(state.stallCheckInterval);
+      state.stallCheckInterval = null;
+    }
+
     try {
       const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
-      // Remove ⏳ reaction
-      await removeSlackReaction(channelId, state.slackStartMessageTs, "hourglass_flowing_sand", {});
+      // Remove both ⏳ and ⚠️ (one may be active depending on stall state)
+      await removeSlackReaction(
+        channelId,
+        state.slackStartMessageTs,
+        "hourglass_flowing_sand",
+        {},
+      ).catch(() => {});
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "warning", {}).catch(
+        () => {},
+      );
       // Add ✅ or ❌ based on success/failure
       const emoji = success ? "white_check_mark" : "x";
       await reactSlackMessage(channelId, state.slackStartMessageTs, emoji, {});
     } catch (err) {
       defaultRuntime.log(
         `[subagent-progress] slack reaction update failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function resumeAfterComplete() {
+    state.completed = false;
+    state.lastToolEventAt = Date.now();
+    state.stalledNotified = false;
+
+    if (
+      !state.slackStartMessageTs ||
+      config.requesterOrigin?.channel !== "slack" ||
+      !config.requesterOrigin?.to
+    ) {
+      return;
+    }
+
+    try {
+      const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+      // Remove ✅/❌ and restore ⏳
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "white_check_mark", {}).catch(
+        () => {},
+      );
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "x", {}).catch(() => {});
+      await reactSlackMessage(channelId, state.slackStartMessageTs, "hourglass_flowing_sand", {});
+
+      // Restart stall check interval
+      if (state.stallCheckInterval) {
+        clearInterval(state.stallCheckInterval);
+      }
+      state.stallCheckInterval = setInterval(() => {
+        void checkForStall();
+      }, 30_000);
+      state.stallCheckInterval.unref?.();
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] resume reaction failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -315,7 +369,12 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
 
       const phase = evt.data?.phase;
       if (phase === "start") {
-        void sendSlackStartMessage();
+        if (state.completed) {
+          // Resumed session — swap ✅/❌ back to ⏳
+          void resumeAfterComplete();
+        } else {
+          void sendSlackStartMessage();
+        }
       } else if (phase === "end") {
         void updateSlackReactionOnComplete(true);
       } else if (phase === "error") {
