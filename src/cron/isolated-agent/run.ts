@@ -522,14 +522,9 @@ export async function runCronIsolatedAgentTurn(params: {
       logWarn(`[cron:${params.job.id}] ${message}`);
       return withRunSession({ status: "ok", summary, outputText });
     }
-    // When delivery.to is explicitly set in the cron job config, deliver directly via
-    // outbound channel adapters. This bypasses the gateway agent call (runSubagentAnnounceFlow),
-    // which would otherwise create a session, inject the message, and make the agent respond.
-    // Use deliveryPlan.to (the explicit config value) rather than resolvedDelivery.to
-    // (which may be resolved from session's lastTo) to determine this.
-    const hasExplicitDeliveryTarget = typeof deliveryPlan.to === "string" && deliveryPlan.to.trim();
-
-    if (hasExplicitDeliveryTarget && (deliveryPayloadHasStructuredContent || synthesizedText)) {
+    // Shared subagent announce flow is text-based; keep direct outbound delivery
+    // for media/channel payloads so structured content is preserved.
+    if (deliveryPayloadHasStructuredContent) {
       try {
         await deliverOutboundPayloads({
           cfg: cfgWithAgentDefaults,
@@ -547,7 +542,6 @@ export async function runCronIsolatedAgentTurn(params: {
         }
       }
     } else if (synthesizedText) {
-      // Fallback: use announce flow when no explicit delivery target (backward compat).
       const announceSessionKey = resolveDeliverySessionKey({
         agentId,
         delivery: {
@@ -570,8 +564,8 @@ export async function runCronIsolatedAgentTurn(params: {
             channel: resolvedDelivery.channel,
             to: resolvedDelivery.to,
             accountId: resolvedDelivery.accountId,
-            // Pass threadId only when explicitly set (omit when undefined to use session default)
-            ...(resolvedDelivery.threadId !== undefined && { threadId: resolvedDelivery.threadId }),
+            // Pass threadId if explicitly set (including undefined to clear)
+            ...(resolvedDelivery.threadId !== null && { threadId: resolvedDelivery.threadId }),
           },
           requesterDisplayKey: announceSessionKey,
           task: taskLabel,
