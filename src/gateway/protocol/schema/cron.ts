@@ -70,6 +70,8 @@ export const CronPayloadPatchSchema = Type.Union([
 
 const CronDeliverySharedProperties = {
   channel: Type.Optional(Type.Union([Type.Literal("last"), NonEmptyString])),
+  to: Type.Optional(Type.String()),
+  threadId: Type.Optional(Type.Union([Type.String(), Type.Integer()])),
   bestEffort: Type.Optional(Type.Boolean()),
 };
 
@@ -77,7 +79,6 @@ const CronDeliveryNoopSchema = Type.Object(
   {
     mode: Type.Literal("none"),
     ...CronDeliverySharedProperties,
-    to: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
@@ -86,7 +87,6 @@ const CronDeliveryAnnounceSchema = Type.Object(
   {
     mode: Type.Literal("announce"),
     ...CronDeliverySharedProperties,
-    to: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
@@ -94,8 +94,10 @@ const CronDeliveryAnnounceSchema = Type.Object(
 const CronDeliveryWebhookSchema = Type.Object(
   {
     mode: Type.Literal("webhook"),
-    ...CronDeliverySharedProperties,
+    channel: Type.Optional(Type.Union([Type.Literal("last"), NonEmptyString])),
     to: NonEmptyString,
+    threadId: Type.Optional(Type.Union([Type.String(), Type.Integer()])),
+    bestEffort: Type.Optional(Type.Boolean()),
   },
   { additionalProperties: false },
 );
@@ -112,7 +114,6 @@ export const CronDeliveryPatchSchema = Type.Object(
       Type.Union([Type.Literal("none"), Type.Literal("announce"), Type.Literal("webhook")]),
     ),
     ...CronDeliverySharedProperties,
-    to: Type.Optional(Type.String()),
   },
   { additionalProperties: false },
 );
