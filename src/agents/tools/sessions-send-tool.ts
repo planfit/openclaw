@@ -14,6 +14,7 @@ import {
   INTERNAL_MESSAGE_CHANNEL,
 } from "../../utils/message-channel.js";
 import { AGENT_LANE_NESTED } from "../lanes.js";
+import { getSubagentRunBySessionKey } from "../subagent-registry.js";
 import { jsonResult, readStringParam } from "./common.js";
 import {
   createAgentToAgentPolicy,
@@ -358,12 +359,20 @@ export function createSessionsSendTool(opts?: {
       }
 
       if (waitStatus === "timeout") {
-        return jsonResult({
+        const runRecord = getSubagentRunBySessionKey(resolvedKey);
+        const timeoutResult: Record<string, unknown> = {
           runId,
           status: "timeout",
           error: waitError,
           sessionKey: displayKey,
-        });
+        };
+        if (runRecord) {
+          timeoutResult.sessionRunning = !runRecord.endedAt;
+          if (runRecord.startedAt) {
+            timeoutResult.lastActivityAt = runRecord.endedAt ?? runRecord.startedAt;
+          }
+        }
+        return jsonResult(timeoutResult);
       }
       if (waitStatus === "error") {
         return jsonResult({

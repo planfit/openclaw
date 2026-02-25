@@ -4,6 +4,7 @@ import type { AnyAgentTool } from "./common.js";
 import { loadConfig } from "../../config/config.js";
 import { callGateway } from "../../gateway/call.js";
 import { isSubagentSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
+import { getSubagentRunBySessionKey } from "../subagent-registry.js";
 import { jsonResult, readStringArrayParam } from "./common.js";
 import {
   createAgentToAgentPolicy,
@@ -201,6 +202,27 @@ export function createSessionsListTool(opts?: {
           const rawMessages = Array.isArray(history?.messages) ? history.messages : [];
           const filtered = stripToolMessages(rawMessages);
           row.messages = filtered.length > messageLimit ? filtered.slice(-messageLimit) : filtered;
+        }
+
+        // Enrich with subagent run status
+        const runRecord = getSubagentRunBySessionKey(key);
+        if (runRecord) {
+          if (runRecord.endedAt) {
+            // Run has ended
+            if (runRecord.outcome?.status === "error") {
+              row.runStatus = "error";
+            } else {
+              row.runStatus = "completed";
+            }
+          } else {
+            // Run is still active
+            row.runStatus = "running";
+          }
+          if (runRecord.startedAt) {
+            const endTime = runRecord.endedAt ?? Date.now();
+            row.elapsedMs = endTime - runRecord.startedAt;
+            row.lastActivityAt = runRecord.endedAt ?? runRecord.startedAt;
+          }
         }
 
         rows.push(row);

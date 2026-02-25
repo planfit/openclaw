@@ -456,3 +456,24 @@ export function listSubagentRunsForRequester(requesterSessionKey: string): Subag
 export function initSubagentRegistry() {
   restoreSubagentRunsOnce();
 }
+
+export function getSubagentRunBySessionKey(sessionKey: string): SubagentRunRecord | undefined {
+  // Search in-memory registry first
+  for (const entry of subagentRuns.values()) {
+    if (entry.childSessionKey === sessionKey) {
+      return entry;
+    }
+  }
+  // Fall back to disk if not found in memory
+  try {
+    const diskRegistry = loadSubagentRegistryFromDisk();
+    for (const entry of diskRegistry.values()) {
+      if (entry.childSessionKey === sessionKey) {
+        return entry;
+      }
+    }
+  } catch {
+    // ignore disk read failures
+  }
+  return undefined;
+}
