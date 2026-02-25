@@ -29,7 +29,7 @@ const DEFAULT_JOB_TIMEOUT_MS = 10 * 60_000; // 10 minutes
  * the same batchEndedAt and thus the same computed nextRunAtMs.
  * This prevents anchorMs drift from causing concurrent jobs to diverge.
  */
-const TICK_TOLERANCE_MS = 30_000;
+const TICK_TOLERANCE_MS = 100;
 
 /**
  * Exponential backoff delays (in ms) indexed by consecutive error count.
