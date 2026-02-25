@@ -4,7 +4,7 @@ import type { AnyAgentTool } from "./common.js";
 import { loadConfig } from "../../config/config.js";
 import { callGateway } from "../../gateway/call.js";
 import { isSubagentSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
-import { listSubagentRunsForRequester } from "../subagent-registry.js";
+import { getSubagentRunBySessionKey, listSubagentRunsForRequester } from "../subagent-registry.js";
 import { jsonResult, readStringArrayParam } from "./common.js";
 import {
   createAgentToAgentPolicy,
@@ -211,7 +211,8 @@ export function createSessionsListTool(opts?: {
         }
 
         // Enrich with subagent run status if available.
-        const run = runByChildKey.get(key);
+        // First check requester's own runs, then fall back to cross-agent lookup by child key.
+        const run = runByChildKey.get(key) ?? getSubagentRunBySessionKey(key);
         if (run) {
           if (run.endedAt && run.outcome?.status === "error") {
             row.runStatus = "error";
