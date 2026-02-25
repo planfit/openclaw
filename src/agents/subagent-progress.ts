@@ -326,36 +326,8 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     state.lastToolEventAt = Date.now();
     state.stalledNotified = false;
 
-    if (
-      !state.slackStartMessageTs ||
-      config.requesterOrigin?.channel !== "slack" ||
-      !config.requesterOrigin?.to
-    ) {
-      return;
-    }
-
-    try {
-      const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
-      // Remove ✅/❌ and restore ⏳
-      await removeSlackReaction(channelId, state.slackStartMessageTs, "white_check_mark", {}).catch(
-        () => {},
-      );
-      await removeSlackReaction(channelId, state.slackStartMessageTs, "x", {}).catch(() => {});
-      await reactSlackMessage(channelId, state.slackStartMessageTs, "hourglass_flowing_sand", {});
-
-      // Restart stall check interval
-      if (state.stallCheckInterval) {
-        clearInterval(state.stallCheckInterval);
-      }
-      state.stallCheckInterval = setInterval(() => {
-        void checkForStall();
-      }, 30_000);
-      state.stallCheckInterval.unref?.();
-    } catch (err) {
-      defaultRuntime.log(
-        `[subagent-progress] resume reaction failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    // Send a new start message and restart stall detection
+    await sendSlackStartMessage();
   }
 
   const stopListener = onAgentEvent((evt) => {
