@@ -107,10 +107,15 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
   const typingCallbacks = createTypingCallbacks({
     start: async () => {
       didSetStatus = true;
+      // Set thread status (visible in UI)
       await ctx.setSlackThreadStatus({
         channelId: message.channel,
         threadTs: statusThreadTs,
         status: "is typing...",
+      });
+      // Send native Slack typing indicator
+      await ctx.app.client.apiCall("conversations.typing", {
+        channel: message.channel,
       });
     },
     stop: async () => {

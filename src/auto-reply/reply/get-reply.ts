@@ -104,7 +104,7 @@ export async function getReplyFromConfig(
   const configuredTypingSeconds =
     agentCfg?.typingIntervalSeconds ?? sessionCfg?.typingIntervalSeconds;
   const typingIntervalSeconds =
-    typeof configuredTypingSeconds === "number" ? configuredTypingSeconds : 6;
+    typeof configuredTypingSeconds === "number" ? configuredTypingSeconds : 4;
   const typing = createTypingController({
     onReplyStart: opts?.onReplyStart,
     onCleanup: opts?.onTypingCleanup,
