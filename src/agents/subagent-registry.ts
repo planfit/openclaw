@@ -454,10 +454,23 @@ export function listSubagentRunsForRequester(requesterSessionKey: string): Subag
 }
 
 export function getSubagentRunBySessionKey(sessionKey: string): SubagentRunRecord | undefined {
+  // Check in-memory first.
   for (const entry of subagentRuns.values()) {
     if (entry.childSessionKey === sessionKey) {
       return entry;
     }
+  }
+  // Fallback: read from disk (handles cross-process cases where runs are registered
+  // in a different agent process, e.g. general-executor spawning subagents).
+  try {
+    const disk = loadSubagentRegistryFromDisk();
+    for (const entry of disk.values()) {
+      if (entry.childSessionKey === sessionKey) {
+        return entry;
+      }
+    }
+  } catch {
+    // ignore disk read failures
   }
   return undefined;
 }
