@@ -4,6 +4,7 @@ import type { AnyAgentTool } from "./common.js";
 import { loadConfig } from "../../config/config.js";
 import { callGateway } from "../../gateway/call.js";
 import { isSubagentSessionKey, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
+import { listSubagentRunsForRequester } from "../subagent-registry.js";
 import { jsonResult, readStringArrayParam } from "./common.js";
 import {
   createAgentToAgentPolicy,
@@ -93,6 +94,12 @@ export function createSessionsListTool(opts?: {
       const a2aPolicy = createAgentToAgentPolicy(cfg);
       const requesterAgentId = resolveAgentIdFromSessionKey(requesterInternalKey);
       const rows: SessionListRow[] = [];
+
+      // Load subagent runs for the current session to enrich with run status.
+      const subagentRuns = requesterInternalKey
+        ? listSubagentRunsForRequester(requesterInternalKey)
+        : [];
+      const runByChildKey = new Map(subagentRuns.map((run) => [run.childSessionKey, run]));
 
       for (const entry of sessions) {
         if (!entry || typeof entry !== "object") {
@@ -201,6 +208,28 @@ export function createSessionsListTool(opts?: {
           const rawMessages = Array.isArray(history?.messages) ? history.messages : [];
           const filtered = stripToolMessages(rawMessages);
           row.messages = filtered.length > messageLimit ? filtered.slice(-messageLimit) : filtered;
+        }
+
+        // Enrich with subagent run status if available.
+        const run = runByChildKey.get(key);
+        if (run) {
+          if (run.endedAt && run.outcome?.status === "error") {
+            row.runStatus = "error";
+          } else if (run.endedAt) {
+            row.runStatus = "completed";
+          } else if (run.startedAt) {
+            row.runStatus = "running";
+          } else {
+            row.runStatus = "idle";
+          }
+
+          // Populate additional fields from the run record.
+          // currentTool would need to be tracked in SubagentRunRecord; for now it's undefined.
+          row.currentTool = undefined;
+          row.lastActivityAt = run.endedAt ?? run.startedAt;
+          if (row.lastActivityAt && run.startedAt) {
+            row.elapsedMs = (run.endedAt ?? Date.now()) - run.startedAt;
+          }
         }
 
         rows.push(row);
