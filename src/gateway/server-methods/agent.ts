@@ -321,7 +321,7 @@ export const agentHandlers: GatewayRequestHandlers = {
       sessionEntry,
       requestedChannel: request.replyChannel ?? request.channel,
       explicitTo,
-      explicitThreadId,
+      explicitThreadId: explicitThreadId ?? undefined,
       accountId: request.replyAccountId ?? request.accountId,
       wantsDelivery,
     });

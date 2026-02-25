@@ -34,7 +34,13 @@ const claudeCodeSchema = Type.Object({
 export type ClaudeCodeToolDetails =
   | { status: "running"; phase: string; info?: string }
   | { status: "planned"; sessionId: string; summary: string }
-  | { status: "completed"; durationMs: number; numTurns: number; sessionId: string };
+  | {
+      status: "completed";
+      durationMs: number;
+      numTurns: number;
+      sessionId: string;
+      toolsUsed?: Record<string, number>;
+    };
 
 export type ClaudeCodePermissions = {
   /** Tools to auto-allow without prompting (default: Read, Glob, Grep, Write, Edit, etc.) */
@@ -65,6 +71,7 @@ export function createClaudeCodeTool(defaults?: {
     parameters: claudeCodeSchema,
     execute: async (_toolCallId, params, _signal, onUpdate) => {
       const isPlan = params.permissionMode === "plan";
+      const toolUseCounts = new Map<string, number>();
 
       const result = await runSDKAgent({
         prompt: params.prompt,
@@ -81,6 +88,9 @@ export function createClaudeCodeTool(defaults?: {
         onProgress: (evt: SDKProgressEvent) => {
           // Forward internal SDK tool events to global event bus for subagent-progress.
           if (evt.phase === "tool_use") {
+            for (const tool of evt.tools) {
+              toolUseCounts.set(tool.name, (toolUseCounts.get(tool.name) ?? 0) + 1);
+            }
             const sessionKey = defaults?.permissions?.sessionKey;
             if (sessionKey) {
               const runId = resolveRunIdBySessionKey(sessionKey);
@@ -156,13 +166,24 @@ export function createClaudeCodeTool(defaults?: {
         };
       }
 
+      const toolsUsed = Object.fromEntries(toolUseCounts);
+      let completionText = result.text;
+      if (toolUseCounts.size > 0) {
+        const toolsSummary = Array.from(toolUseCounts.entries())
+          .toSorted(([, a], [, b]) => b - a)
+          .map(([name, count]) => `${name}: ${count}`)
+          .join(", ");
+        completionText += `\n\n---\nTools used: ${toolsSummary}`;
+      }
+
       return {
-        content: [{ type: "text", text: result.text }],
+        content: [{ type: "text", text: completionText }],
         details: {
           status: "completed" as const,
           durationMs: result.durationMs,
           numTurns: result.numTurns,
           sessionId: result.sessionId,
+          toolsUsed,
         },
       };
     },

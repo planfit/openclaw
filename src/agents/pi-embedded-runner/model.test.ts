@@ -242,6 +242,41 @@ describe("resolveModel", () => {
     });
   });
 
+  it("builds an anthropic forward-compat fallback for claude-sonnet-4-6", () => {
+    const templateModel = {
+      id: "claude-sonnet-4-5",
+      name: "Claude Sonnet 4.5",
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com",
+      reasoning: true,
+      input: ["text", "image"] as const,
+      cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+      contextWindow: 200000,
+      maxTokens: 64000,
+    };
+
+    vi.mocked(discoverModels).mockReturnValue({
+      find: vi.fn((provider: string, modelId: string) => {
+        if (provider === "anthropic" && modelId === "claude-sonnet-4-5") {
+          return templateModel;
+        }
+        return null;
+      }),
+    } as unknown as ReturnType<typeof discoverModels>);
+
+    const result = resolveModel("anthropic", "claude-sonnet-4-6", "/tmp/agent");
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "anthropic",
+      id: "claude-sonnet-4-6",
+      api: "anthropic-messages",
+      baseUrl: "https://api.anthropic.com",
+      reasoning: true,
+    });
+  });
+
   it("keeps unknown-model errors for non-gpt-5 openai-codex ids", () => {
     const result = resolveModel("openai-codex", "gpt-4.1-mini", "/tmp/agent");
     expect(result.model).toBeUndefined();

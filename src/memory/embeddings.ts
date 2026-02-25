@@ -227,8 +227,9 @@ export async function createEmbeddingProvider(
             providerUnavailableReason: combinedReason,
           };
         }
-        // Non-auth errors are still fatal
-        throw new Error(combinedReason, { cause: primaryErr });
+        // Non-auth errors are still fatal - both errors are preserved in AggregateError
+        // eslint-disable-next-line preserve-caught-error
+        throw new AggregateError([primaryErr, fallbackErr], combinedReason);
       }
     }
     // No fallback configured - check if we should degrade to FTS-only
