@@ -38,10 +38,6 @@ export type SessionListRow = {
   lastAccountId?: string;
   transcriptPath?: string;
   messages?: unknown[];
-  runStatus?: "running" | "idle" | "completed" | "error";
-  currentTool?: string;
-  lastActivityAt?: number;
-  elapsedMs?: number;
 };
 
 function normalizeKey(value?: string) {
