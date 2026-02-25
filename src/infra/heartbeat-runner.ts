@@ -660,7 +660,13 @@ export async function runHeartbeatOnce(opts: {
   };
 
   try {
-    const replyResult = await getReplyFromConfig(ctx, { isHeartbeat: true }, cfg);
+    const agentCfg = resolveAgentConfig(cfg, agentId);
+    const disableBlockStreaming = agentCfg?.blockStreamingDefault === "on" ? false : undefined;
+    const replyResult = await getReplyFromConfig(
+      ctx,
+      { isHeartbeat: true, disableBlockStreaming },
+      cfg,
+    );
     const replyPayload = resolveHeartbeatReplyPayload(replyResult);
     const includeReasoning = heartbeat?.includeReasoning === true;
     const reasoningPayloads = includeReasoning
