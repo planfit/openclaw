@@ -23,9 +23,9 @@ beforeEach(() => {
   );
 });
 
-describe("runHeartbeatOnce", () => {
-  it("disables block streaming when blockStreamingDefault is on", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-"));
+describe("runHeartbeatOnce block streaming", () => {
+  it("provides onBlockReply callback when blockStreamingDefault is 'on'", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-block-"));
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -88,8 +88,8 @@ describe("runHeartbeatOnce", () => {
     }
   });
 
-  it("does not set disableBlockStreaming when blockStreamingDefault is off", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-"));
+  it("does not provide onBlockReply when blockStreamingDefault is 'off'", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-block-"));
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -139,17 +139,24 @@ describe("runHeartbeatOnce", () => {
 
       expect(replySpy).toHaveBeenCalledWith(
         expect.anything(),
-        { isHeartbeat: true, disableBlockStreaming: undefined },
+        expect.objectContaining({
+          isHeartbeat: true,
+          disableBlockStreaming: undefined,
+        }),
         cfg,
       );
+
+      // Should NOT have onBlockReply callback
+      const callOptions = replySpy.mock.calls[0][1];
+      expect(callOptions?.onBlockReply).toBeUndefined();
     } finally {
       replySpy.mockRestore();
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it("does not set disableBlockStreaming when blockStreamingDefault is unset", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-"));
+  it("calls deliverOutboundPayloads with block payloads when onBlockReply is invoked", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-hb-block-"));
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.spyOn(replyModule, "getReplyFromConfig");
     try {
@@ -159,10 +166,7 @@ describe("runHeartbeatOnce", () => {
             workspace: tmpDir,
             heartbeat: { every: "5m", target: "telegram" },
           },
-          list: [
-            { id: "main", default: true },
-            // blockStreamingDefault is not set
-          ],
+          list: [{ id: "main", default: true, blockStreamingDefault: "on" }],
         },
         channels: { telegram: { allowFrom: ["*"] } },
         session: { store: storePath },
@@ -185,7 +189,16 @@ describe("runHeartbeatOnce", () => {
         ),
       );
 
-      replySpy.mockResolvedValue([{ text: "Alert message" }]);
+      // Mock that getReplyFromConfig will invoke onBlockReply callback
+      replySpy.mockImplementation(async (_ctx, opts) => {
+        // Simulate block streaming by calling onBlockReply
+        if (opts?.onBlockReply) {
+          await opts.onBlockReply({ text: "Block 1" });
+          await opts.onBlockReply({ text: "Block 2" });
+        }
+        return [{ text: "Final message" }];
+      });
+
       const sendTelegram = vi.fn().mockResolvedValue({
         messageId: "m1",
         chatId: "123",
@@ -200,11 +213,13 @@ describe("runHeartbeatOnce", () => {
         },
       });
 
-      expect(replySpy).toHaveBeenCalledWith(
-        expect.anything(),
-        { isHeartbeat: true, disableBlockStreaming: undefined },
-        cfg,
-      );
+      // Verify that sendTelegram was called for block payloads
+      // (It should be called 3 times: 2 blocks + 1 final)
+      expect(sendTelegram).toHaveBeenCalledTimes(3);
+      // Check the second argument (text) for each call
+      expect(sendTelegram.mock.calls[0][1]).toBe("Block 1");
+      expect(sendTelegram.mock.calls[1][1]).toBe("Block 2");
+      expect(sendTelegram.mock.calls[2][1]).toBe("Final message");
     } finally {
       replySpy.mockRestore();
       await fs.rm(tmpDir, { recursive: true, force: true });

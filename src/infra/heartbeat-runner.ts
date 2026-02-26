@@ -664,7 +664,30 @@ export async function runHeartbeatOnce(opts: {
     const disableBlockStreaming = agentCfg?.blockStreamingDefault === "on" ? false : undefined;
     const replyResult = await getReplyFromConfig(
       ctx,
-      { isHeartbeat: true, disableBlockStreaming },
+      {
+        isHeartbeat: true,
+        disableBlockStreaming,
+        onBlockReply:
+          disableBlockStreaming === false
+            ? (payload) => {
+                const run = async () => {
+                  if (delivery.channel === "none" || !delivery.to) {
+                    return;
+                  }
+                  await deliverOutboundPayloads({
+                    cfg,
+                    channel: delivery.channel,
+                    to: delivery.to,
+                    accountId: delivery.accountId,
+                    threadId: delivery.threadId,
+                    payloads: [payload],
+                    deps: opts.deps,
+                  });
+                };
+                return run();
+              }
+            : undefined,
+      },
       cfg,
     );
     const replyPayload = resolveHeartbeatReplyPayload(replyResult);
