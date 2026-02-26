@@ -63,6 +63,8 @@ export type AgentConfig = {
     prune?: SandboxPruneSettings;
   };
   tools?: AgentToolsConfig;
+  /** Per-agent block streaming default (overrides agent defaults). */
+  blockStreamingDefault?: "off" | "on";
 };
 
 export type AgentsConfig = {
