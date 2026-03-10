@@ -454,7 +454,8 @@ describe("slack prepareSlackMessage inbound contract", () => {
     expect(prepared!.ctxPayload.ThreadHistoryBody).toContain("assistant reply");
     expect(prepared!.ctxPayload.ThreadHistoryBody).toContain("follow-up question");
     expect(prepared!.ctxPayload.ThreadHistoryBody).not.toContain("current message");
-    expect(replies).toHaveBeenCalledTimes(2);
+    // Thread starter lookup + accumulated history + thread context history = 3 calls
+    expect(replies).toHaveBeenCalledTimes(3);
   });
 
   it("skips loading thread history when thread session already exists in store (bloat fix)", async () => {
@@ -499,8 +500,8 @@ describe("slack prepareSlackMessage inbound contract", () => {
     // Thread starter should also be skipped for existing sessions
     expect(prepared!.ctxPayload.ThreadStarterBody).toBeUndefined();
     expect(prepared!.ctxPayload.ThreadLabel).toContain("Slack thread");
-    // Replies API should only be called once (for thread starter lookup, not history)
-    expect(replies).toHaveBeenCalledTimes(1);
+    // Replies API: thread starter lookup + accumulated history (bloat fix skips thread context history)
+    expect(replies).toHaveBeenCalledTimes(2);
   });
 
   it("includes thread_ts and parent_user_id metadata in thread replies", async () => {
