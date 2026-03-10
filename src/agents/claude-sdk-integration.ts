@@ -7,6 +7,7 @@
  * @see https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk
  */
 
+import { execSync } from "child_process";
 import {
   query,
   type Options,
@@ -15,10 +16,40 @@ import {
   type SDKResultError,
   type SDKAssistantMessageError,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { FailoverReason } from "./pi-embedded-helpers/types.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { FailoverError, resolveFailoverStatus } from "./failover-error.js";
 import { classifyFailoverReason, isFailoverErrorMessage } from "./pi-embedded-helpers.js";
+import type { FailoverReason } from "./pi-embedded-helpers/types.js";
+
+/**
+ * Resolve the path to the Claude Code CLI executable.
+ * When bundled by tsdown, `import.meta.url` points to the dist/ directory,
+ * not the SDK's own directory, causing the SDK's fallback `cli.js` resolution
+ * to fail. We explicitly resolve the path here to avoid this issue.
+ */
+function resolveClaudeCodeExecutable(): string | undefined {
+  try {
+    // First try: find 'claude' in PATH
+    const claudePath = execSync("which claude", { encoding: "utf8", timeout: 3000 }).trim();
+    if (claudePath) {
+      return claudePath;
+    }
+  } catch {
+    // Fallback: try common installation paths
+    const commonPaths = [
+      `${process.env.HOME}/.local/bin/claude`,
+      "/usr/local/bin/claude",
+      "/opt/homebrew/bin/claude",
+    ];
+    const { existsSync } = require("fs");
+    for (const p of commonPaths) {
+      if (existsSync(p)) {
+        return p;
+      }
+    }
+  }
+  return undefined;
+}
 
 const log = createSubsystemLogger("agent/claude-sdk");
 
@@ -112,6 +143,10 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
     : { type: "preset" as const, preset: "claude_code" as const };
 
   const effectivePermissionMode = params.permissionMode ?? "bypassPermissions";
+  const claudeExecutable = resolveClaudeCodeExecutable();
+  if (claudeExecutable) {
+    log.info(`sdk claude-cli: ${claudeExecutable}`);
+  }
   const options: Options = {
     cwd: params.cwd,
     permissionMode: effectivePermissionMode,
@@ -119,6 +154,7 @@ export async function runSDKAgent(params: SDKAgentParams): Promise<SDKAgentResul
     maxTurns: params.maxTurns ?? DEFAULT_MAX_TURNS,
     systemPrompt,
     settingSources: ["user", "project", "local"],
+    ...(claudeExecutable && { pathToClaudeCodeExecutable: claudeExecutable }),
     ...(params.model && { model: params.model }),
     ...(params.env && { env: params.env }),
     ...(params.canUseTool && { canUseTool: params.canUseTool }),
