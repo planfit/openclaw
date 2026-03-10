@@ -1,0 +1,8 @@
+{
+  "id": "nostr",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

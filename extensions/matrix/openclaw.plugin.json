@@ -1,0 +1,8 @@
+{
+  "id": "matrix",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

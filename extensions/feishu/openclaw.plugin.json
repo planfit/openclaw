@@ -1,0 +1,8 @@
+{
+  "id": "feishu",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

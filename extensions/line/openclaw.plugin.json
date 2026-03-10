@@ -1,0 +1,8 @@
+{
+  "id": "line",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

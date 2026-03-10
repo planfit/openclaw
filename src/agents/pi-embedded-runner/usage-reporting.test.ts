@@ -1,59 +1,12 @@
 import "./run.overflow-compaction.mocks.shared.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../auth-profiles.js", () => ({
-  isProfileInCooldown: vi.fn(() => false),
-  markAuthProfileFailure: vi.fn(async () => {}),
-  markAuthProfileGood: vi.fn(async () => {}),
-  markAuthProfileUsed: vi.fn(async () => {}),
+const runtimePluginMocks = vi.hoisted(() => ({
+  ensureRuntimePluginsLoaded: vi.fn(),
 }));
 
-vi.mock("../usage.js", () => ({
-  normalizeUsage: vi.fn((usage?: unknown) =>
-    usage && typeof usage === "object" ? usage : undefined,
-  ),
-  derivePromptTokens: vi.fn(
-    (usage?: { input?: number; cacheRead?: number; cacheWrite?: number }) => {
-      if (!usage) {
-        return undefined;
-      }
-      const input = usage.input ?? 0;
-      const cacheRead = usage.cacheRead ?? 0;
-      const cacheWrite = usage.cacheWrite ?? 0;
-      const sum = input + cacheRead + cacheWrite;
-      return sum > 0 ? sum : undefined;
-    },
-  ),
-}));
-
-vi.mock("../workspace-run.js", () => ({
-  resolveRunWorkspaceDir: vi.fn((params: { workspaceDir: string }) => ({
-    workspaceDir: params.workspaceDir,
-    usedFallback: false,
-    fallbackReason: undefined,
-    agentId: "main",
-  })),
-  redactRunIdentifier: vi.fn((value?: string) => value ?? ""),
-}));
-
-vi.mock("../pi-embedded-helpers.js", () => ({
-  formatBillingErrorMessage: vi.fn(() => ""),
-  classifyFailoverReason: vi.fn(() => null),
-  formatAssistantErrorText: vi.fn(() => ""),
-  isAuthAssistantError: vi.fn(() => false),
-  isBillingAssistantError: vi.fn(() => false),
-  isCompactionFailureError: vi.fn(() => false),
-  isLikelyContextOverflowError: vi.fn((msg?: string) => {
-    const lower = (msg ?? "").toLowerCase();
-    return lower.includes("request_too_large") || lower.includes("context window exceeded");
-  }),
-  isFailoverAssistantError: vi.fn(() => false),
-  isFailoverErrorMessage: vi.fn(() => false),
-  parseImageSizeError: vi.fn(() => null),
-  parseImageDimensionError: vi.fn(() => null),
-  isRateLimitAssistantError: vi.fn(() => false),
-  isTimeoutErrorMessage: vi.fn(() => false),
-  pickFallbackThinkingLevel: vi.fn(() => null),
+vi.mock("../runtime-plugins.js", () => ({
+  ensureRuntimePluginsLoaded: runtimePluginMocks.ensureRuntimePluginsLoaded,
 }));
 
 import { runEmbeddedPiAgent } from "./run.js";
@@ -64,6 +17,66 @@ const mockedRunEmbeddedAttempt = vi.mocked(runEmbeddedAttempt);
 describe("runEmbeddedPiAgent usage reporting", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("bootstraps runtime plugins with the resolved workspace before running", async () => {
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["Response 1"],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    await runEmbeddedPiAgent({
+      sessionId: "test-session",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "hello",
+      timeoutMs: 30000,
+      runId: "run-plugin-bootstrap",
+    });
+
+    expect(runtimePluginMocks.ensureRuntimePluginsLoaded).toHaveBeenCalledWith({
+      config: undefined,
+      workspaceDir: "/tmp/workspace",
+    });
+  });
+
+  it("forwards sender identity fields into embedded attempts", async () => {
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce({
+      aborted: false,
+      promptError: null,
+      timedOut: false,
+      sessionIdUsed: "test-session",
+      assistantTexts: ["Response 1"],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    await runEmbeddedPiAgent({
+      sessionId: "test-session",
+      sessionKey: "test-key",
+      sessionFile: "/tmp/session.json",
+      workspaceDir: "/tmp/workspace",
+      prompt: "hello",
+      timeoutMs: 30000,
+      runId: "run-sender-forwarding",
+      senderId: "user-123",
+      senderName: "Josh Lehman",
+      senderUsername: "josh",
+      senderE164: "+15551234567",
+    });
+
+    expect(mockedRunEmbeddedAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        senderId: "user-123",
+        senderName: "Josh Lehman",
+        senderUsername: "josh",
+        senderE164: "+15551234567",
+      }),
+    );
   });
 
   it("reports total usage from the last turn instead of accumulated total", async () => {
@@ -107,7 +120,7 @@ describe("runEmbeddedPiAgent usage reporting", () => {
     });
 
     // Check usage in meta
-    const usage = result.meta.agentMeta.usage;
+    const usage = result.meta.agentMeta?.usage;
     expect(usage).toBeDefined();
 
     // Check if total matches the last turn's total (200)

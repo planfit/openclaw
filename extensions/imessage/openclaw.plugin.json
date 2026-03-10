@@ -1,0 +1,8 @@
+{
+  "id": "imessage",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

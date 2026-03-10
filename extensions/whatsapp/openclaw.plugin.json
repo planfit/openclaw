@@ -1,0 +1,8 @@
+{
+  "id": "whatsapp",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -1,14 +1,11 @@
 import type { OutboundSendDeps } from "../infra/outbound/deliver.js";
+import {
+  createOutboundSendDepsFromCliSource,
+  type CliOutboundSendSource,
+} from "./outbound-send-mapping.js";
 
-export type CliDeps = {
-  sendMessageTelegram: NonNullable<OutboundSendDeps["sendTelegram"]>;
-  sendMessageSlack: NonNullable<OutboundSendDeps["sendSlack"]>;
-};
+export type CliDeps = Required<CliOutboundSendSource>;
 
-// Provider docking: extend this mapping when adding new outbound send deps.
 export function createOutboundSendDeps(deps: CliDeps): OutboundSendDeps {
-  return {
-    sendTelegram: deps.sendMessageTelegram,
-    sendSlack: deps.sendMessageSlack,
-  };
+  return createOutboundSendDepsFromCliSource(deps);
 }

@@ -1,0 +1,8 @@
+{
+  "id": "signal",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

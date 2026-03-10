@@ -8,4 +8,8 @@ export type ChannelsState = {
   channelsSnapshot: ChannelsStatusSnapshot | null;
   channelsError: string | null;
   channelsLastSuccess: number | null;
+  whatsappLoginMessage: string | null;
+  whatsappLoginQrDataUrl: string | null;
+  whatsappLoginConnected: boolean | null;
+  whatsappBusy: boolean;
 };

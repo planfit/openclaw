@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { clearBootstrapSnapshotOnSessionRollover } from "../../agents/bootstrap-cache.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
   evaluateSessionFreshness,
@@ -58,24 +59,31 @@ export function resolveCronSession(params: {
     systemSent = false;
   }
 
+  clearBootstrapSnapshotOnSessionRollover({
+    sessionKey: params.sessionKey,
+    previousSessionId: isNewSession ? entry?.sessionId : undefined,
+  });
+
   const sessionEntry: SessionEntry = {
-    // Spread existing entry to preserve conversation context when reusing
-    ...(isNewSession ? undefined : entry),
+    // Preserve existing per-session overrides even when rolling to a new sessionId.
+    ...entry,
+    // Always update these core fields
     sessionId,
     updatedAt: params.nowMs,
     systemSent,
-    // Preserve user preferences from existing entry
-    thinkingLevel: entry?.thinkingLevel,
-    verboseLevel: entry?.verboseLevel,
-    model: entry?.model,
-    contextTokens: entry?.contextTokens,
-    sendPolicy: entry?.sendPolicy,
-    lastChannel: entry?.lastChannel,
-    lastTo: entry?.lastTo,
-    lastAccountId: entry?.lastAccountId,
-    label: entry?.label,
-    displayName: entry?.displayName,
-    skillsSnapshot: entry?.skillsSnapshot,
+    // When starting a fresh session (forceNew / isolated), clear delivery routing
+    // state inherited from prior sessions. Without this, lastThreadId leaks into
+    // the new session and causes announce-mode cron deliveries to post as thread
+    // replies instead of channel top-level messages.
+    // deliveryContext must also be cleared because normalizeSessionEntryDelivery
+    // repopulates lastThreadId from deliveryContext.threadId on store writes.
+    ...(isNewSession && {
+      lastChannel: undefined,
+      lastTo: undefined,
+      lastAccountId: undefined,
+      lastThreadId: undefined,
+      deliveryContext: undefined,
+    }),
   };
   return { storePath, store, sessionEntry, systemSent, isNewSession };
 }

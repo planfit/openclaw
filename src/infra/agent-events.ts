@@ -15,7 +15,8 @@ export type AgentRunContext = {
   sessionKey?: string;
   verboseLevel?: VerboseLevel;
   isHeartbeat?: boolean;
-  /** When true, tool summaries should not be relayed to channels (e.g. group chats, native commands). */
+  /** Whether control UI clients should receive chat/agent updates for this run. */
+  isControlUiVisible?: boolean;
   suppressToolSummaries?: boolean;
 };
 
@@ -23,14 +24,10 @@ export type AgentRunContext = {
 const seqByRun = new Map<string, number>();
 const listeners = new Set<(evt: AgentEventPayload) => void>();
 const runContextById = new Map<string, AgentRunContext>();
-const runIdBySessionKey = new Map<string, string>();
 
 export function registerAgentRunContext(runId: string, context: AgentRunContext) {
   if (!runId) {
     return;
-  }
-  if (context.sessionKey) {
-    runIdBySessionKey.set(context.sessionKey, runId);
   }
   const existing = runContextById.get(runId);
   if (!existing) {
@@ -43,14 +40,11 @@ export function registerAgentRunContext(runId: string, context: AgentRunContext)
   if (context.verboseLevel && existing.verboseLevel !== context.verboseLevel) {
     existing.verboseLevel = context.verboseLevel;
   }
+  if (context.isControlUiVisible !== undefined) {
+    existing.isControlUiVisible = context.isControlUiVisible;
+  }
   if (context.isHeartbeat !== undefined && existing.isHeartbeat !== context.isHeartbeat) {
     existing.isHeartbeat = context.isHeartbeat;
-  }
-  if (
-    context.suppressToolSummaries !== undefined &&
-    existing.suppressToolSummaries !== context.suppressToolSummaries
-  ) {
-    existing.suppressToolSummaries = context.suppressToolSummaries;
   }
 }
 
@@ -62,23 +56,27 @@ export function clearAgentRunContext(runId: string) {
   runContextById.delete(runId);
 }
 
-export function resolveRunIdBySessionKey(sessionKey: string): string | undefined {
-  return runIdBySessionKey.get(sessionKey);
-}
-
 export function resetAgentRunContextForTest() {
   runContextById.clear();
-  runIdBySessionKey.clear();
+}
+
+export function resolveRunIdBySessionKey(sessionKey: string): string | undefined {
+  for (const [runId, context] of runContextById) {
+    if (context.sessionKey === sessionKey) {
+      return runId;
+    }
+  }
+  return undefined;
 }
 
 export function emitAgentEvent(event: Omit<AgentEventPayload, "seq" | "ts">) {
   const nextSeq = (seqByRun.get(event.runId) ?? 0) + 1;
   seqByRun.set(event.runId, nextSeq);
   const context = runContextById.get(event.runId);
-  const sessionKey =
-    typeof event.sessionKey === "string" && event.sessionKey.trim()
-      ? event.sessionKey
-      : context?.sessionKey;
+  const isControlUiVisible = context?.isControlUiVisible ?? true;
+  const eventSessionKey =
+    typeof event.sessionKey === "string" && event.sessionKey.trim() ? event.sessionKey : undefined;
+  const sessionKey = isControlUiVisible ? (eventSessionKey ?? context?.sessionKey) : undefined;
   const enriched: AgentEventPayload = {
     ...event,
     sessionKey,

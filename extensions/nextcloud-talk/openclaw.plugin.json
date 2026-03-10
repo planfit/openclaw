@@ -1,0 +1,8 @@
+{
+  "id": "nextcloud-talk",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

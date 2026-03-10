@@ -1,0 +1,8 @@
+{
+  "id": "zalo",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
