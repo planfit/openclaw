@@ -389,6 +389,11 @@ export async function runAgentTurnWithFallback(params: {
                   : undefined,
               onReasoningEnd: params.opts?.onReasoningEnd,
               onAgentEvent: async (evt) => {
+                // Forward SDK events to global event bus for subagent-progress listeners.
+                if (evt.stream === "tool" || evt.stream === "compaction") {
+                  emitAgentEvent({ runId, stream: evt.stream, data: evt.data });
+                }
+
                 // Signal run start only after the embedded agent emits real activity.
                 const hasLifecyclePhase =
                   evt.stream === "lifecycle" && typeof evt.data.phase === "string";
