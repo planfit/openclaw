@@ -170,6 +170,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       const queued = await maybeQueueSubagentAnnounce({
         requesterSessionKey: config.requesterSessionKey,
         triggerMessage: summary,
+        steerMessage: summary,
         summaryLine: `${config.label || "subagent"}: progress`,
         requesterOrigin: config.requesterOrigin,
       });

@@ -2,47 +2,46 @@ import { describe, expect, it } from "vitest";
 import { isSlackStreamingEnabled, resolveSlackStreamingThreadHint } from "./dispatch.js";
 
 describe("slack native streaming defaults", () => {
-  it("defaults to enabled when undefined", () => {
-    expect(isSlackStreamingEnabled(undefined)).toBe(true);
+  it("is enabled for partial mode when native streaming is on", () => {
+    expect(isSlackStreamingEnabled({ mode: "partial", nativeStreaming: true })).toBe(true);
   });
 
-  it("returns true when explicitly enabled", () => {
-    expect(isSlackStreamingEnabled(true)).toBe(true);
-  });
-
-  it("returns false when explicitly disabled", () => {
-    expect(isSlackStreamingEnabled(false)).toBe(false);
+  it("is disabled outside partial mode or when native streaming is off", () => {
+    expect(isSlackStreamingEnabled({ mode: "partial", nativeStreaming: false })).toBe(false);
+    expect(isSlackStreamingEnabled({ mode: "block", nativeStreaming: true })).toBe(false);
+    expect(isSlackStreamingEnabled({ mode: "progress", nativeStreaming: true })).toBe(false);
+    expect(isSlackStreamingEnabled({ mode: "off", nativeStreaming: true })).toBe(false);
   });
 });
 
 describe("slack native streaming thread hint", () => {
-  it("returns incomingThreadTs for reply-to-all in thread", () => {
-    expect(
-      resolveSlackStreamingThreadHint({
-        replyToMode: "all",
-        incomingThreadTs: "111.222",
-        messageTs: "333.444",
-      }),
-    ).toBe("111.222");
-  });
-
-  it("returns messageTs for reply-to-first top-level", () => {
-    expect(
-      resolveSlackStreamingThreadHint({
-        replyToMode: "first",
-        incomingThreadTs: undefined,
-        messageTs: "555.666",
-      }),
-    ).toBe("555.666");
-  });
-
-  it("returns undefined when reply-to is off", () => {
+  it("stays off-thread when replyToMode=off and message is not in a thread", () => {
     expect(
       resolveSlackStreamingThreadHint({
         replyToMode: "off",
         incomingThreadTs: undefined,
-        messageTs: "777.888",
+        messageTs: "1000.1",
       }),
     ).toBeUndefined();
+  });
+
+  it("uses first-reply thread when replyToMode=first", () => {
+    expect(
+      resolveSlackStreamingThreadHint({
+        replyToMode: "first",
+        incomingThreadTs: undefined,
+        messageTs: "1000.2",
+      }),
+    ).toBe("1000.2");
+  });
+
+  it("uses the existing incoming thread regardless of replyToMode", () => {
+    expect(
+      resolveSlackStreamingThreadHint({
+        replyToMode: "off",
+        incomingThreadTs: "2000.1",
+        messageTs: "1000.3",
+      }),
+    ).toBe("2000.1");
   });
 });

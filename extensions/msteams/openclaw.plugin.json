@@ -1,0 +1,8 @@
+{
+  "id": "msteams",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

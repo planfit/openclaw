@@ -1,7 +1,13 @@
-import type { ReplyPayload } from "../types.js";
 import { sanitizeUserFacingText } from "../../agents/pi-embedded-helpers.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
-import { HEARTBEAT_TOKEN, isSilentReplyText, SILENT_REPLY_TOKEN } from "../tokens.js";
+import {
+  HEARTBEAT_TOKEN,
+  isSilentReplyText,
+  SILENT_REPLY_TOKEN,
+  stripSilentToken,
+} from "../tokens.js";
+import type { ReplyPayload } from "../types.js";
+import { hasLineDirectives, parseLineDirectives } from "./line-directives.js";
 import {
   resolveResponsePrefixTemplate,
   type ResponsePrefixContext,
@@ -42,6 +48,16 @@ export function normalizeReplyPayload(
     }
     text = "";
   }
+  // Strip NO_REPLY from mixed-content messages (e.g. "😄 NO_REPLY") so the
+  // token never leaks to end users.  If stripping leaves nothing, treat it as
+  // silent just like the exact-match path above.  (#30916, #30955)
+  if (text && text.includes(silentToken) && !isSilentReplyText(text, silentToken)) {
+    text = stripSilentToken(text, silentToken);
+    if (!text && !hasMedia && !hasChannelData) {
+      opts.onSkip?.("silent");
+      return null;
+    }
+  }
   if (text && !trimmed) {
     // Keep empty text when media exists so media-only replies still send.
     text = "";
@@ -68,7 +84,12 @@ export function normalizeReplyPayload(
     return null;
   }
 
-  const enrichedPayload: ReplyPayload = { ...payload, text };
+  // Parse LINE-specific directives from text (quick_replies, location, confirm, buttons)
+  let enrichedPayload: ReplyPayload = { ...payload, text };
+  if (text && hasLineDirectives(text)) {
+    enrichedPayload = parseLineDirectives(enrichedPayload);
+    text = enrichedPayload.text;
+  }
 
   // Resolve template variables in responsePrefix if context is provided
   const effectivePrefix = opts.responsePrefixContext

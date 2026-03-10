@@ -1,0 +1,8 @@
+{
+  "id": "mattermost",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

@@ -6,7 +6,6 @@ import {
   onAgentEvent,
   registerAgentRunContext,
   resetAgentRunContextForTest,
-  resolveRunIdBySessionKey,
 } from "./agent-events.js";
 
 describe("agent-events sequencing", () => {
@@ -37,28 +36,6 @@ describe("agent-events sequencing", () => {
     expect(seen["run-2"]).toEqual([1]);
   });
 
-  test("resolveRunIdBySessionKey returns runId after registration", () => {
-    resetAgentRunContextForTest();
-    registerAgentRunContext("run-A", { sessionKey: "sk-1" });
-    expect(resolveRunIdBySessionKey("sk-1")).toBe("run-A");
-    expect(resolveRunIdBySessionKey("sk-unknown")).toBeUndefined();
-  });
-
-  test("resolveRunIdBySessionKey updates on re-registration with new sessionKey", () => {
-    resetAgentRunContextForTest();
-    registerAgentRunContext("run-B", { sessionKey: "sk-old" });
-    registerAgentRunContext("run-B", { sessionKey: "sk-new" });
-    expect(resolveRunIdBySessionKey("sk-new")).toBe("run-B");
-    expect(resolveRunIdBySessionKey("sk-old")).toBe("run-B");
-  });
-
-  test("resetAgentRunContextForTest clears sessionKey reverse map", () => {
-    registerAgentRunContext("run-C", { sessionKey: "sk-clear" });
-    expect(resolveRunIdBySessionKey("sk-clear")).toBe("run-C");
-    resetAgentRunContextForTest();
-    expect(resolveRunIdBySessionKey("sk-clear")).toBeUndefined();
-  });
-
   test("preserves compaction ordering on the event bus", async () => {
     const phases: Array<string> = [];
     const stop = onAgentEvent((evt) => {
@@ -83,5 +60,27 @@ describe("agent-events sequencing", () => {
     stop();
 
     expect(phases).toEqual(["start", "end"]);
+  });
+
+  test("omits sessionKey for runs hidden from Control UI", async () => {
+    resetAgentRunContextForTest();
+    registerAgentRunContext("run-hidden", {
+      sessionKey: "session-imessage",
+      isControlUiVisible: false,
+    });
+
+    let receivedSessionKey: string | undefined;
+    const stop = onAgentEvent((evt) => {
+      receivedSessionKey = evt.sessionKey;
+    });
+    emitAgentEvent({
+      runId: "run-hidden",
+      stream: "assistant",
+      data: { text: "hi" },
+      sessionKey: "session-imessage",
+    });
+    stop();
+
+    expect(receivedSessionKey).toBeUndefined();
   });
 });

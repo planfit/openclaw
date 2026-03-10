@@ -1,13 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sleep } from "../utils.js";
 import { runClaudeCliAgent } from "./claude-cli-runner.js";
 
-const runCommandWithTimeoutMock = vi.fn();
-const runSDKAgentMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  spawn: vi.fn(),
+}));
+
+vi.mock("../process/supervisor/index.js", () => ({
+  getProcessSupervisor: () => ({
+    spawn: (...args: unknown[]) => mocks.spawn(...args),
+    cancel: vi.fn(),
+    cancelScope: vi.fn(),
+    reconcileOrphans: async () => {},
+    getRecord: vi.fn(),
+  }),
+}));
 
 function createDeferred<T>() {
-  let resolve: (value: T) => void;
-  let reject: (error: unknown) => void;
+  let resolve: (value: T) => void = () => {};
+  let reject: (error: unknown) => void = () => {};
   const promise = new Promise<T>((res, rej) => {
     resolve = res;
     reject = rej;
@@ -19,38 +29,58 @@ function createDeferred<T>() {
   };
 }
 
-async function waitForCalls(mockFn: { mock: { calls: unknown[][] } }, count: number) {
-  for (let i = 0; i < 50; i += 1) {
-    if (mockFn.mock.calls.length >= count) {
-      return;
-    }
-    await sleep(0);
-  }
-  throw new Error(`Expected ${count} calls, got ${mockFn.mock.calls.length}`);
+function createManagedRun(
+  exit: Promise<{
+    reason: "exit" | "overall-timeout" | "no-output-timeout" | "signal" | "manual-cancel";
+    exitCode: number | null;
+    exitSignal: NodeJS.Signals | null;
+    durationMs: number;
+    stdout: string;
+    stderr: string;
+    timedOut: boolean;
+    noOutputTimedOut: boolean;
+  }>,
+) {
+  return {
+    runId: "run-test",
+    pid: 12345,
+    startedAtMs: Date.now(),
+    wait: async () => await exit,
+    cancel: vi.fn(),
+  };
 }
 
-vi.mock("../process/exec.js", () => ({
-  runCommandWithTimeout: (...args: unknown[]) => runCommandWithTimeoutMock(...args),
-}));
+function successExit(payload: { message: string; session_id: string }) {
+  return {
+    reason: "exit" as const,
+    exitCode: 0,
+    exitSignal: null,
+    durationMs: 1,
+    stdout: JSON.stringify(payload),
+    stderr: "",
+    timedOut: false,
+    noOutputTimedOut: false,
+  };
+}
 
-vi.mock("./claude-sdk-integration.js", () => ({
-  runSDKAgent: (...args: unknown[]) => runSDKAgentMock(...args),
-}));
+async function waitForCalls(mockFn: { mock: { calls: unknown[][] } }, count: number) {
+  await vi.waitFor(
+    () => {
+      expect(mockFn.mock.calls.length).toBeGreaterThanOrEqual(count);
+    },
+    { timeout: 2_000, interval: 5 },
+  );
+}
 
 describe("runClaudeCliAgent", () => {
   beforeEach(() => {
-    runCommandWithTimeoutMock.mockReset();
-    runSDKAgentMock.mockReset();
+    mocks.spawn.mockClear();
   });
 
-  it("starts a new session via SDK when none is provided", async () => {
-    runSDKAgentMock.mockResolvedValueOnce({
-      text: "ok",
-      sessionId: "sid-1",
-      durationMs: 100,
-      numTurns: 1,
-      totalCostUsd: 0.01,
-    });
+  it("starts a new session with --session-id when none is provided", async () => {
+    mocks.spawn.mockResolvedValueOnce(
+      createManagedRun(Promise.resolve(successExit({ message: "ok", session_id: "sid-1" }))),
+    );
 
     await runClaudeCliAgent({
       sessionId: "openclaw-session",
@@ -62,22 +92,18 @@ describe("runClaudeCliAgent", () => {
       runId: "run-1",
     });
 
-    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
-    expect(runCommandWithTimeoutMock).not.toHaveBeenCalled();
-
-    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(sdkParams.prompt).toBe("hi");
-    expect(sdkParams.cwd).toBe("/tmp");
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    const spawnInput = mocks.spawn.mock.calls[0]?.[0] as { argv: string[]; mode: string };
+    expect(spawnInput.mode).toBe("child");
+    expect(spawnInput.argv).toContain("claude");
+    expect(spawnInput.argv).toContain("--session-id");
+    expect(spawnInput.argv).toContain("hi");
   });
 
-  it("uses resume when a claude session id is provided", async () => {
-    runSDKAgentMock.mockResolvedValueOnce({
-      text: "ok",
-      sessionId: "c9d7b831-1c31-4d22-80b9-1e50ca207d4b",
-      durationMs: 100,
-      numTurns: 1,
-      totalCostUsd: 0.01,
-    });
+  it("uses --resume when a claude session id is provided", async () => {
+    mocks.spawn.mockResolvedValueOnce(
+      createManagedRun(Promise.resolve(successExit({ message: "ok", session_id: "sid-2" }))),
+    );
 
     await runClaudeCliAgent({
       sessionId: "openclaw-session",
@@ -90,30 +116,21 @@ describe("runClaudeCliAgent", () => {
       claudeSessionId: "c9d7b831-1c31-4d22-80b9-1e50ca207d4b",
     });
 
-    expect(runSDKAgentMock).toHaveBeenCalledTimes(1);
-    const sdkParams = runSDKAgentMock.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(sdkParams.resume).toBe("c9d7b831-1c31-4d22-80b9-1e50ca207d4b");
+    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    const spawnInput = mocks.spawn.mock.calls[0]?.[0] as { argv: string[] };
+    expect(spawnInput.argv).toContain("--resume");
+    expect(spawnInput.argv).toContain("c9d7b831-1c31-4d22-80b9-1e50ca207d4b");
+    expect(spawnInput.argv).not.toContain("--session-id");
+    expect(spawnInput.argv).toContain("hi");
   });
 
   it("serializes concurrent claude-cli runs", async () => {
-    const firstDeferred = createDeferred<{
-      text: string;
-      sessionId: string;
-      durationMs: number;
-      numTurns: number;
-      totalCostUsd: number;
-    }>();
-    const secondDeferred = createDeferred<{
-      text: string;
-      sessionId: string;
-      durationMs: number;
-      numTurns: number;
-      totalCostUsd: number;
-    }>();
+    const firstDeferred = createDeferred<ReturnType<typeof successExit>>();
+    const secondDeferred = createDeferred<ReturnType<typeof successExit>>();
 
-    runSDKAgentMock
-      .mockImplementationOnce(() => firstDeferred.promise)
-      .mockImplementationOnce(() => secondDeferred.promise);
+    mocks.spawn
+      .mockResolvedValueOnce(createManagedRun(firstDeferred.promise))
+      .mockResolvedValueOnce(createManagedRun(secondDeferred.promise));
 
     const firstRun = runClaudeCliAgent({
       sessionId: "s1",
@@ -135,25 +152,13 @@ describe("runClaudeCliAgent", () => {
       runId: "run-2",
     });
 
-    await waitForCalls(runSDKAgentMock, 1);
+    await waitForCalls(mocks.spawn, 1);
 
-    firstDeferred.resolve({
-      text: "ok",
-      sessionId: "sid-1",
-      durationMs: 100,
-      numTurns: 1,
-      totalCostUsd: 0.01,
-    });
+    firstDeferred.resolve(successExit({ message: "ok", session_id: "sid-1" }));
 
-    await waitForCalls(runSDKAgentMock, 2);
+    await waitForCalls(mocks.spawn, 2);
 
-    secondDeferred.resolve({
-      text: "ok",
-      sessionId: "sid-2",
-      durationMs: 100,
-      numTurns: 1,
-      totalCostUsd: 0.01,
-    });
+    secondDeferred.resolve(successExit({ message: "ok", session_id: "sid-2" }));
 
     await Promise.all([firstRun, secondRun]);
   });
