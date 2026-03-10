@@ -13,6 +13,8 @@ export type CronJobBase<TSchedule, TSessionTarget, TWakeMode, TPayload, TDeliver
     sessionTarget: TSessionTarget;
     wakeMode: TWakeMode;
     payload: TPayload;
+    /** Target session for main jobs to inject systemEvents/heartbeat (requires wakeMode=now). */
+    targetSessionKey?: string;
     delivery?: TDelivery;
     failureAlert?: TFailureAlert;
   };

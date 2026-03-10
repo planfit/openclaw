@@ -1049,7 +1049,8 @@ export async function executeJobCore(
     // Preserve the job session namespace for main-target reminders so heartbeat
     // routing can deliver follow-through in the originating channel/thread.
     // Downstream gateway wiring canonicalizes/guards this key per agent.
-    const targetMainSessionKey = job.sessionKey;
+    // If targetSessionKey is set, it takes priority for routing to specific sessions/threads.
+    const targetMainSessionKey = job.targetSessionKey || job.sessionKey;
     state.deps.enqueueSystemEvent(text, {
       agentId: job.agentId,
       sessionKey: targetMainSessionKey,

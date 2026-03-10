@@ -176,7 +176,19 @@ function validateTelegramDeliveryTarget(to: string | undefined): string | undefi
   return undefined;
 }
 
-function assertDeliverySupport(job: Pick<CronJob, "sessionTarget" | "delivery">) {
+function assertDeliverySupport(
+  job: Pick<CronJob, "sessionTarget" | "delivery" | "targetSessionKey" | "wakeMode">,
+) {
+  // Validate targetSessionKey placement
+  if (job.targetSessionKey && job.sessionTarget !== "main") {
+    throw new Error('targetSessionKey is only supported for sessionTarget="main"');
+  }
+  if (job.targetSessionKey && job.wakeMode !== "now") {
+    throw new Error(
+      'targetSessionKey requires wakeMode="now" (next-heartbeat cannot target specific sessions)',
+    );
+  }
+
   // No delivery object or mode is "none" -- nothing to validate.
   if (!job.delivery || job.delivery.mode === "none") {
     return;
@@ -545,6 +557,9 @@ export function createJob(state: CronServiceState, input: CronJobCreate): CronJo
     sessionTarget: input.sessionTarget,
     wakeMode: input.wakeMode,
     payload: input.payload,
+    targetSessionKey: normalizeOptionalSessionKey(
+      (input as { targetSessionKey?: unknown }).targetSessionKey,
+    ),
     delivery: resolveInitialCronDelivery(input),
     failureAlert: input.failureAlert,
     state: {
@@ -640,6 +655,11 @@ export function applyJobPatch(
   }
   if ("sessionKey" in patch) {
     job.sessionKey = normalizeOptionalSessionKey((patch as { sessionKey?: unknown }).sessionKey);
+  }
+  if ("targetSessionKey" in patch) {
+    job.targetSessionKey = normalizeOptionalSessionKey(
+      (patch as { targetSessionKey?: unknown }).targetSessionKey,
+    );
   }
   assertSupportedJobSpec(job);
   assertMainSessionAgentId(job, opts?.defaultAgentId);

@@ -59,6 +59,7 @@ const CronDeliveryStatusSchema = Type.Union([
 const CronCommonOptionalFields = {
   agentId: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   sessionKey: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
+  targetSessionKey: Type.Optional(Type.Union([NonEmptyString, Type.Null()])),
   description: Type.Optional(Type.String()),
   enabled: Type.Optional(Type.Boolean()),
   deleteAfterRun: Type.Optional(Type.Boolean()),
@@ -245,6 +246,7 @@ export const CronJobSchema = Type.Object(
     sessionTarget: CronSessionTargetSchema,
     wakeMode: CronWakeModeSchema,
     payload: CronPayloadSchema,
+    targetSessionKey: Type.Optional(NonEmptyString),
     delivery: Type.Optional(CronDeliverySchema),
     failureAlert: Type.Optional(Type.Union([Type.Literal(false), CronFailureAlertSchema])),
     state: CronJobStateSchema,
