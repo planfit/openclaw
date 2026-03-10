@@ -54,4 +54,6 @@ export type SubagentRunRecord = {
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
+  /** Cleanup function to stop progress subscription (runtime-only, not persisted). */
+  stopProgress?: () => void;
 };

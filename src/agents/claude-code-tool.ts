@@ -5,6 +5,7 @@ import type {
   AgentToolUpdateCallback,
 } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
+import { emitAgentEvent, resolveRunIdBySessionKey } from "../infra/agent-events.js";
 import { runSDKAgent, type SDKProgressEvent } from "./claude-sdk-integration.js";
 
 const claudeCodeSchema = Type.Object({

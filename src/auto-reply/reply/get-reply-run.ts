@@ -264,9 +264,9 @@ export async function runPreparedReply(
       })
     : "";
   const groupSystemPrompt = sessionCtx.GroupSystemPrompt?.trim() ?? "";
-  if (sessionCtx.HistoryFirstOnly || Array.isArray(sessionCtx.InboundHistory)) {
+  if (Array.isArray(sessionCtx.InboundHistory)) {
     logVerbose(
-      `[history-scope] isNewSession=${isNewSession} HistoryFirstOnly=${!!sessionCtx.HistoryFirstOnly} historyLen=${Array.isArray(sessionCtx.InboundHistory) ? sessionCtx.InboundHistory.length : 0} systemSent=${systemSent} sessionKey=${sessionKey}`,
+      `[history-scope] isNewSession=${isNewSession} historyLen=${sessionCtx.InboundHistory.length} systemSent=${systemSent} sessionKey=${sessionKey}`,
     );
   }
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(

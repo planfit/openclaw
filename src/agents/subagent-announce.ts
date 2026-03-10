@@ -659,7 +659,7 @@ function buildAnnounceQueueKey(sessionKey: string, origin?: DeliveryContext): st
   return `${sessionKey}:acct:${accountId}`;
 }
 
-async function maybeQueueSubagentAnnounce(params: {
+export async function maybeQueueSubagentAnnounce(params: {
   requesterSessionKey: string;
   announceId?: string;
   triggerMessage: string;

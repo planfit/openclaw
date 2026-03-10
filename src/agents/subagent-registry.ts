@@ -30,6 +30,7 @@ import {
   SUBAGENT_ENDED_REASON_KILLED,
   type SubagentLifecycleEndedReason,
 } from "./subagent-lifecycle-events.js";
+import { subscribeSubagentProgress } from "./subagent-progress.js";
 import {
   resolveCleanupCompletionReason,
   resolveDeferredCleanupDecision,
@@ -853,6 +854,10 @@ async function finalizeSubagentCleanup(
   if (!entry) {
     return;
   }
+  // Stop progress subscription when cleaning up.
+  entry.stopProgress?.();
+  entry.stopProgress = undefined;
+
   if (didAnnounce) {
     entry.wakeOnDescendantSettle = undefined;
     entry.fallbackFrozenResultText = undefined;
@@ -1160,6 +1165,7 @@ export function registerSubagentRun(params: {
   attachmentsDir?: string;
   attachmentsRootDir?: string;
   retainAttachmentsOnKeep?: boolean;
+  enableProgress?: boolean;
 }) {
   const now = Date.now();
   const cfg = loadConfig();
@@ -1170,7 +1176,7 @@ export function registerSubagentRun(params: {
   const runTimeoutSeconds = params.runTimeoutSeconds ?? 0;
   const waitTimeoutMs = resolveSubagentWaitTimeoutMs(cfg, runTimeoutSeconds);
   const requesterOrigin = normalizeDeliveryContext(params.requesterOrigin);
-  subagentRuns.set(params.runId, {
+  const entry: SubagentRunRecord = {
     runId: params.runId,
     childSessionKey: params.childSessionKey,
     requesterSessionKey: params.requesterSessionKey,
@@ -1192,7 +1198,20 @@ export function registerSubagentRun(params: {
     attachmentsDir: params.attachmentsDir,
     attachmentsRootDir: params.attachmentsRootDir,
     retainAttachmentsOnKeep: params.retainAttachmentsOnKeep,
-  });
+  };
+
+  // Start progress subscription unless explicitly disabled.
+  if (params.enableProgress !== false) {
+    entry.stopProgress = subscribeSubagentProgress({
+      runId: params.runId,
+      childSessionKey: params.childSessionKey,
+      requesterSessionKey: params.requesterSessionKey,
+      requesterOrigin,
+      label: params.label,
+    });
+  }
+
+  subagentRuns.set(params.runId, entry);
   ensureListener();
   persistSubagentRuns();
   if (archiveAtMs) {
@@ -1269,6 +1288,9 @@ async function waitForSubagentCompletion(runId: string, waitTimeoutMs: number) {
 }
 
 export function resetSubagentRegistryForTests(opts?: { persist?: boolean }) {
+  for (const entry of subagentRuns.values()) {
+    entry.stopProgress?.();
+  }
   subagentRuns.clear();
   resumedRuns.clear();
   endedHookInFlightRunIds.clear();
@@ -1294,6 +1316,7 @@ export function releaseSubagentRun(runId: string) {
   clearPendingLifecycleError(runId);
   const entry = subagentRuns.get(runId);
   if (entry) {
+    entry.stopProgress?.();
     void notifyContextEngineSubagentEnded({
       childSessionKey: entry.childSessionKey,
       reason: "released",
