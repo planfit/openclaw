@@ -1,7 +1,12 @@
 import { routeReply } from "../auto-reply/reply/route-reply.js";
 import { loadConfig } from "../config/config.js";
-import { onAgentEvent } from "../infra/agent-events.js";
+import {
+  getAgentRunContext,
+  onAgentEvent,
+  resolveRunIdBySessionKey,
+} from "../infra/agent-events.js";
 import { defaultRuntime } from "../runtime.js";
+import { reactSlackMessage, removeSlackReaction } from "../slack/actions.js";
 import type { DeliveryContext } from "../utils/delivery-context.js";
 import { maybeQueueSubagentAnnounce } from "./subagent-announce.js";
 import { resolveToolDisplay, formatToolSummary } from "./tool-display.js";
@@ -17,6 +22,8 @@ export type SubagentProgressConfig = {
   channelThrottleMs?: number;
   /** Parent agent intermediate report interval (ms). default: 30000 */
   parentReportIntervalMs?: number;
+  /** When true, skip relaying tool summaries to the channel (e.g. group chats, native commands). */
+  suppressChannelRelay?: boolean;
 };
 
 type ToolUsageEntry = {
@@ -31,6 +38,11 @@ type ProgressState = {
   lastChannelSendAt: number;
   lastParentReportAt: number;
   startedAt: number;
+  slackStartMessageTs?: string;
+  lastToolEventAt: number;
+  stalledNotified: boolean;
+  stallCheckInterval: NodeJS.Timeout | null;
+  completed: boolean;
 };
 
 function buildToolSummaryLine(toolName: string, args: unknown): string {
@@ -56,11 +68,15 @@ function buildParentProgressMessage(config: SubagentProgressConfig, state: Progr
     ? `Currently: ${state.currentDetail || state.currentTool}`
     : "Idle";
 
+  const lastActivityMs = Date.now() - state.lastToolEventAt;
+  const lastActivitySec = Math.round(lastActivityMs / 1000);
+
   return [
     `Subagent "${label}" progress update:`,
     `- Tools used so far: ${toolsUsedLine}`,
     `- ${currentLine}`,
     `- Elapsed: ${elapsedSec}s`,
+    `- Last activity: ${lastActivitySec}s ago`,
     "",
     "Briefly update the user on the subagent's progress. One sentence max.",
   ].join("\n");
@@ -77,6 +93,10 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     lastChannelSendAt: 0,
     lastParentReportAt: Date.now(),
     startedAt: Date.now(),
+    lastToolEventAt: Date.now(),
+    stalledNotified: false,
+    stallCheckInterval: null,
+    completed: false,
   };
 
   let parentReportTimer: NodeJS.Timeout | null = null;
@@ -92,8 +112,32 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     parentReportTimer.unref?.();
   }
 
+  function shouldSuppressRelay(): boolean {
+    if (config.suppressChannelRelay) {
+      return true;
+    }
+    // Check parent run context for suppressToolSummaries (set by dispatch-from-config
+    // when ChatType is "group" or CommandSource is "native").
+    const parentRunId = resolveRunIdBySessionKey(config.requesterSessionKey);
+    if (parentRunId) {
+      const parentCtx = getAgentRunContext(parentRunId);
+      // If parentCtx is undefined, registerAgentRunContext() hasn't run yet —
+      // default to suppressing so early tool events don't leak through.
+      if (!parentCtx || parentCtx.suppressToolSummaries) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function relayToChannel(message: string) {
+    if (shouldSuppressRelay()) {
+      return;
+    }
     if (!config.requesterOrigin?.channel || !config.requesterOrigin?.to) {
+      defaultRuntime.log(
+        `[subagent-progress] channel relay skipped: channel=${config.requesterOrigin?.channel ?? "none"} to=${config.requesterOrigin?.to ?? "none"} runId=${config.runId}`,
+      );
       return;
     }
     const now = Date.now();
@@ -126,7 +170,7 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
       const queued = await maybeQueueSubagentAnnounce({
         requesterSessionKey: config.requesterSessionKey,
         triggerMessage: summary,
-        steerMessage: summary,
+        steerMessage: "",
         summaryLine: `${config.label || "subagent"}: progress`,
         requesterOrigin: config.requesterOrigin,
       });
@@ -140,7 +184,178 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     }
   }
 
+  async function sendSlackStartMessage() {
+    // Only send for Slack channels when not suppressed
+    if (shouldSuppressRelay()) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    try {
+      const result = await routeReply({
+        payload: { text: config.label ? `🧩 Claude Code — ${config.label}` : "🧩 Claude Code" },
+        channel: config.requesterOrigin.channel,
+        to: config.requesterOrigin.to,
+        sessionKey: config.requesterSessionKey,
+        threadId: config.requesterOrigin.threadId,
+        cfg: loadConfig(),
+      });
+
+      if (result.messageId) {
+        state.slackStartMessageTs = result.messageId;
+        // Add ⏳ reaction to indicate subagent is in progress
+        const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+        await reactSlackMessage(channelId, result.messageId, "hourglass_flowing_sand", {});
+
+        // Start stall check interval (30s)
+        state.stallCheckInterval = setInterval(() => {
+          void checkForStall();
+        }, 30_000);
+        state.stallCheckInterval.unref?.();
+      }
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] slack start message failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function checkForStall() {
+    if (!state.slackStartMessageTs) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    const timeSinceLastTool = Date.now() - state.lastToolEventAt;
+    if (timeSinceLastTool > 180_000 && !state.stalledNotified) {
+      try {
+        const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+        await removeSlackReaction(
+          channelId,
+          state.slackStartMessageTs,
+          "hourglass_flowing_sand",
+          {},
+        );
+        await reactSlackMessage(channelId, state.slackStartMessageTs, "warning", {});
+        state.stalledNotified = true;
+      } catch (err) {
+        defaultRuntime.log(
+          `[subagent-progress] stall warning failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  }
+
+  async function recoverFromStall() {
+    if (!state.stalledNotified) {
+      return;
+    }
+    if (!state.slackStartMessageTs) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    try {
+      const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "warning", {});
+      await reactSlackMessage(channelId, state.slackStartMessageTs, "hourglass_flowing_sand", {});
+      state.stalledNotified = false;
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] stall recovery failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function updateSlackReactionOnComplete(success: boolean) {
+    if (!state.slackStartMessageTs) {
+      return;
+    }
+    if (config.requesterOrigin?.channel !== "slack") {
+      return;
+    }
+    if (!config.requesterOrigin?.to) {
+      return;
+    }
+
+    state.completed = true;
+    // Stop stall checking on completion
+    if (state.stallCheckInterval) {
+      clearInterval(state.stallCheckInterval);
+      state.stallCheckInterval = null;
+    }
+
+    try {
+      const channelId = config.requesterOrigin.to.replace(/^channel:/, "");
+      // Remove both ⏳ and ⚠️ (one may be active depending on stall state)
+      await removeSlackReaction(
+        channelId,
+        state.slackStartMessageTs,
+        "hourglass_flowing_sand",
+        {},
+      ).catch(() => {});
+      await removeSlackReaction(channelId, state.slackStartMessageTs, "warning", {}).catch(
+        () => {},
+      );
+      // Add ✅ or ❌ based on success/failure
+      const emoji = success ? "white_check_mark" : "x";
+      await reactSlackMessage(channelId, state.slackStartMessageTs, emoji, {});
+    } catch (err) {
+      defaultRuntime.log(
+        `[subagent-progress] slack reaction update failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function resumeAfterComplete() {
+    state.completed = false;
+    state.lastToolEventAt = Date.now();
+    state.stalledNotified = false;
+
+    // Send a new start message and restart stall detection
+    await sendSlackStartMessage();
+  }
+
   const stopListener = onAgentEvent((evt) => {
+    // Handle lifecycle events for subagent start/end
+    if (evt && evt.stream === "lifecycle") {
+      const matchesRun = evt.runId === config.runId;
+      const matchesSession = evt.sessionKey === config.childSessionKey;
+      if (!matchesRun && !matchesSession) {
+        return;
+      }
+
+      const phase = evt.data?.phase;
+      if (phase === "start") {
+        if (state.completed) {
+          // Resumed session — swap ✅/❌ back to ⏳
+          void resumeAfterComplete();
+        } else {
+          void sendSlackStartMessage();
+        }
+      } else if (phase === "end") {
+        void updateSlackReactionOnComplete(true);
+      } else if (phase === "error") {
+        void updateSlackReactionOnComplete(false);
+      }
+      return;
+    }
+
     if (!evt || evt.stream !== "tool") {
       return;
     }
@@ -157,7 +372,16 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     }
     const toolName = normalizeToolName(rawName);
 
+    // Skip internal tool events from SDK-based tools (e.g. claude_code's internal
+    // Read/Write/Glob). These are implementation details that shouldn't be relayed
+    // to the channel — only the parent tool itself gets a summary via emitToolSummary.
+    const parentTool = typeof evt.data?.parentTool === "string" ? evt.data.parentTool : undefined;
+
     if (phase === "start") {
+      // Update last tool event timestamp and recover from stall if needed
+      state.lastToolEventAt = Date.now();
+      void recoverFromStall();
+
       // Track tool usage count
       state.toolCounts.set(toolName, (state.toolCounts.get(toolName) ?? 0) + 1);
       state.currentTool = toolName;
@@ -168,15 +392,17 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
 
       defaultRuntime.log(`[subagent-progress] ${summaryLine} (runId=${config.runId})`);
 
-      // Relay to channel (throttled)
-      void relayToChannel(summaryLine);
+      // Relay to channel (throttled), but skip internal SDK tool events
+      if (!parentTool && toolName !== "claude_code") {
+        void relayToChannel(summaryLine);
+      }
 
       // Schedule parent report if not already scheduled
       scheduleParentReport();
     } else if (phase === "result") {
       const isError = Boolean(evt.data?.isError);
-      if (isError) {
-        const errorLine = `❌ Tool failed: ${toolName}`;
+      if (isError && !parentTool && toolName !== "claude_code") {
+        const errorLine = `:x: Tool failed: ${toolName}`;
         defaultRuntime.log(`[subagent-progress] ${errorLine} (runId=${config.runId})`);
         void relayToChannel(errorLine);
       }
@@ -190,6 +416,10 @@ export function subscribeSubagentProgress(config: SubagentProgressConfig): () =>
     if (parentReportTimer) {
       clearTimeout(parentReportTimer);
       parentReportTimer = null;
+    }
+    if (state.stallCheckInterval) {
+      clearInterval(state.stallCheckInterval);
+      state.stallCheckInterval = null;
     }
   };
 }
