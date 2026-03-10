@@ -24,6 +24,7 @@ export type TranscriptPolicy = {
     includeCamelCase?: boolean;
   };
   sanitizeThinkingSignatures: boolean;
+  normalizeAntigravityThinkingBlocks: boolean;
   dropThinkingBlocks: boolean;
   applyGoogleTurnOrdering: boolean;
   validateGeminiTurns: boolean;
@@ -106,6 +107,8 @@ export function resolveTranscriptPolicy(params: {
       ? { allowBase64Only: true, includeCamelCase: true }
       : undefined;
 
+  const isAntigravity = provider === "google-antigravity";
+
   return {
     sanitizeMode: isOpenAi ? "images-only" : needsNonImageSanitize ? "full" : "images-only",
     sanitizeToolCallIds:
@@ -115,6 +118,7 @@ export function resolveTranscriptPolicy(params: {
     preserveSignatures: isAnthropic && preservesAnthropicThinkingSignatures(provider),
     sanitizeThoughtSignatures: isOpenAi ? undefined : sanitizeThoughtSignatures,
     sanitizeThinkingSignatures: false,
+    normalizeAntigravityThinkingBlocks: isAntigravity,
     dropThinkingBlocks,
     applyGoogleTurnOrdering: !isOpenAi && (isGoogle || isStrictOpenAiCompatible),
     validateGeminiTurns: !isOpenAi && (isGoogle || isStrictOpenAiCompatible),

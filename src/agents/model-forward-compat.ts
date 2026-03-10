@@ -28,6 +28,13 @@ const ANTHROPIC_SONNET_TEMPLATE_MODEL_IDS = ["claude-sonnet-4-5", "claude-sonnet
 const ZAI_GLM5_MODEL_ID = "glm-5";
 const ZAI_GLM5_TEMPLATE_MODEL_IDS = ["glm-4.7"] as const;
 
+// google-antigravity's model catalog in pi-ai can lag behind the actual platform.
+// When a google-antigravity model ID contains "opus-4-6" (or "opus-4.6") but isn't
+// in the registry yet, clone the opus-4-5 template so the correct api
+// ("google-gemini-cli") and baseUrl are preserved.
+const ANTIGRAVITY_OPUS_46_STEMS = ["claude-opus-4-6", "claude-opus-4.6"] as const;
+const ANTIGRAVITY_OPUS_45_TEMPLATES = ["claude-opus-4-5-thinking", "claude-opus-4-5"] as const;
+
 // gemini-3.1-pro-preview / gemini-3.1-flash-preview are not yet in pi-ai's built-in
 // google-gemini-cli catalog. Clone the gemini-3-pro/flash-preview template so users
 // don't get "Unknown model" errors when Google releases a new minor version.
@@ -325,6 +332,34 @@ function resolveZaiGlm5ForwardCompatModel(
   } as Model<Api>);
 }
 
+function resolveAntigravityOpus46ForwardCompatModel(
+  provider: string,
+  modelId: string,
+  modelRegistry: ModelRegistry,
+): Model<Api> | undefined {
+  if (normalizeProviderId(provider) !== "google-antigravity") {
+    return undefined;
+  }
+  const lower = modelId.trim().toLowerCase();
+  const isOpus46 = ANTIGRAVITY_OPUS_46_STEMS.some(
+    (stem) => lower === stem || lower.startsWith(`${stem}-`),
+  );
+  if (!isOpus46) {
+    return undefined;
+  }
+  for (const templateId of ANTIGRAVITY_OPUS_45_TEMPLATES) {
+    const template = modelRegistry.find("google-antigravity", templateId) as Model<Api> | null;
+    if (template) {
+      return normalizeModelCompat({
+        ...template,
+        id: modelId.trim(),
+        name: modelId.trim(),
+      } as Model<Api>);
+    }
+  }
+  return undefined;
+}
+
 export function resolveForwardCompatModel(
   provider: string,
   modelId: string,
@@ -335,6 +370,7 @@ export function resolveForwardCompatModel(
     resolveOpenAICodexForwardCompatModel(provider, modelId, modelRegistry) ??
     resolveAnthropicOpus46ForwardCompatModel(provider, modelId, modelRegistry) ??
     resolveAnthropicSonnet46ForwardCompatModel(provider, modelId, modelRegistry) ??
+    resolveAntigravityOpus46ForwardCompatModel(provider, modelId, modelRegistry) ??
     resolveZaiGlm5ForwardCompatModel(provider, modelId, modelRegistry) ??
     resolveGoogle31ForwardCompatModel(provider, modelId, modelRegistry)
   );

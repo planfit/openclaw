@@ -58,6 +58,7 @@ const GOOGLE_SCHEMA_UNSUPPORTED_KEYWORDS = new Set([
   "minProperties",
   "maxProperties",
 ]);
+const ANTIGRAVITY_SIGNATURE_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
 const INTER_SESSION_PREFIX_BASE = "[Inter-session message]";
 
@@ -135,6 +136,84 @@ function annotateInterSessionUserMessages(messages: AgentMessage[]): AgentMessag
     out.push({
       ...(msg as unknown as Record<string, unknown>),
       content: [{ type: "text", text: prefix }, ...user.content],
+    } as AgentMessage);
+  }
+  return touched ? out : messages;
+}
+
+function isValidAntigravitySignature(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (trimmed.length % 4 !== 0) {
+    return false;
+  }
+  return ANTIGRAVITY_SIGNATURE_RE.test(trimmed);
+}
+
+export function sanitizeAntigravityThinkingBlocks(messages: AgentMessage[]): AgentMessage[] {
+  let touched = false;
+  const out: AgentMessage[] = [];
+  for (const msg of messages) {
+    if (!msg || typeof msg !== "object" || msg.role !== "assistant") {
+      out.push(msg);
+      continue;
+    }
+    const assistant = msg;
+    if (!Array.isArray(assistant.content)) {
+      out.push(msg);
+      continue;
+    }
+    type AssistantContentBlock = Extract<AgentMessage, { role: "assistant" }>["content"][number];
+    const nextContent: AssistantContentBlock[] = [];
+    let contentChanged = false;
+    for (const block of assistant.content) {
+      if (
+        !block ||
+        typeof block !== "object" ||
+        (block as { type?: unknown }).type !== "thinking"
+      ) {
+        nextContent.push(block);
+        continue;
+      }
+      const rec = block as {
+        thinkingSignature?: unknown;
+        signature?: unknown;
+        thought_signature?: unknown;
+        thoughtSignature?: unknown;
+      };
+      const candidate =
+        rec.thinkingSignature ?? rec.signature ?? rec.thought_signature ?? rec.thoughtSignature;
+      if (!isValidAntigravitySignature(candidate)) {
+        contentChanged = true;
+        continue;
+      }
+      if (rec.thinkingSignature !== candidate) {
+        const nextBlock = {
+          ...(block as unknown as Record<string, unknown>),
+          thinkingSignature: candidate,
+        };
+        delete (nextBlock as { signature?: unknown }).signature;
+        delete (nextBlock as { thought_signature?: unknown }).thought_signature;
+        delete (nextBlock as { thoughtSignature?: unknown }).thoughtSignature;
+        nextContent.push(nextBlock as AssistantContentBlock);
+        contentChanged = true;
+      } else {
+        nextContent.push(block);
+      }
+    }
+    if (!contentChanged) {
+      out.push(msg);
+      continue;
+    }
+    touched = true;
+    out.push({
+      ...(msg as unknown as Record<string, unknown>),
+      content: nextContent,
     } as AgentMessage);
   }
   return touched ? out : messages;

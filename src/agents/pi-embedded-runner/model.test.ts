@@ -6,6 +6,7 @@ vi.mock("../pi-model-discovery.js", () => ({
 }));
 
 import type { OpenClawConfig } from "../../config/config.js";
+import { discoverModels } from "../pi-model-discovery.js";
 import { buildInlineProviderModels, resolveModel } from "./model.js";
 import {
   buildOpenAICodexForwardCompatExpectation,
@@ -599,11 +600,46 @@ describe("resolveModel", () => {
     });
   });
 
+  it("builds a google-antigravity forward-compat fallback for claude-opus-4-6-thinking", () => {
+    const templateModel = buildForwardCompatTemplate({
+      id: "claude-opus-4-5-thinking",
+      name: "Claude Opus 4.5 Thinking",
+      provider: "google-antigravity",
+      api: "google-gemini-cli",
+      baseUrl: "https://daily-cloudcode-pa.sandbox.googleapis.com",
+      contextWindow: 1000000,
+      maxTokens: 64000,
+    });
+
+    vi.mocked(discoverModels).mockReturnValue({
+      find: vi.fn((provider: string, modelId: string) => {
+        if (provider === "google-antigravity" && modelId === "claude-opus-4-5-thinking") {
+          return templateModel;
+        }
+        return null;
+      }),
+    } as unknown as ReturnType<typeof discoverModels>);
+
+    expectResolvedForwardCompatFallback({
+      provider: "google-antigravity",
+      id: "claude-opus-4-6-thinking",
+      expectedModel: {
+        provider: "google-antigravity",
+        id: "claude-opus-4-6-thinking",
+        api: "google-gemini-cli",
+        baseUrl: "https://daily-cloudcode-pa.sandbox.googleapis.com",
+        reasoning: true,
+      },
+    });
+  });
+
   it("keeps unknown-model errors when no antigravity thinking template exists", () => {
+    // No template mocked - should fail
     expectUnknownModelError("google-antigravity", "claude-opus-4-6-thinking");
   });
 
   it("keeps unknown-model errors when no antigravity non-thinking template exists", () => {
+    // No template mocked - should fail
     expectUnknownModelError("google-antigravity", "claude-opus-4-6");
   });
 
