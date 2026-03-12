@@ -107,6 +107,11 @@ export function isLikelyContextOverflowError(errorMessage?: string): boolean {
     return false;
   }
 
+  // Billing errors take precedence - they should never be treated as context overflow
+  if (isBillingErrorMessage(errorMessage)) {
+    return false;
+  }
+
   // Groq uses 413 for TPM (tokens per minute) limits, which is a rate limit, not context overflow.
   if (hasRateLimitTpmHint(errorMessage)) {
     return false;
