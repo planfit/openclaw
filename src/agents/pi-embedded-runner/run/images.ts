@@ -297,7 +297,7 @@ function detectImagesFromHistory(messages: unknown[]): DetectedImageRef[] {
     }
     const message = msg as { role?: string };
     // Only scan user messages for image references
-    if (message.role !== "user") {
+    if (message.role !== "user" && message.role !== "toolResult") {
       continue;
     }
     // Skip if message already has image content (prevents reloading each turn)

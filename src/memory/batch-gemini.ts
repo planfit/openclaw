@@ -1,6 +1,7 @@
 import type { GeminiEmbeddingClient } from "./embeddings-gemini.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { sanitizeAndNormalizeEmbedding } from "./embedding-vectors.js";
 import { hashText } from "./internal.js";
 
 export type GeminiBatchRequest = {
@@ -406,7 +407,7 @@ export async function runGeminiEmbeddingBatches(params: {
         errors.push(`${customId}: empty embedding`);
         continue;
       }
-      byCustomId.set(customId, embedding);
+      byCustomId.set(customId, sanitizeAndNormalizeEmbedding(embedding));
     }
 
     if (errors.length > 0) {

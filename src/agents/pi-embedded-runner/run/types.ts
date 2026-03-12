@@ -19,6 +19,7 @@ export type EmbeddedRunAttemptParams = {
   agentId?: string;
   messageChannel?: string;
   messageProvider?: string;
+  trigger?: string;
   agentAccountId?: string;
   messageTo?: string;
   messageThreadId?: string | number;

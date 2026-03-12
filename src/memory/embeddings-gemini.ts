@@ -2,6 +2,7 @@ import type { EmbeddingProvider, EmbeddingProviderOptions } from "./embeddings.j
 import { requireApiKey, resolveApiKeyForProvider } from "../agents/model-auth.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { sanitizeAndNormalizeEmbedding } from "./embedding-vectors.js";
 
 export type GeminiEmbeddingClient = {
   baseUrl: string;
@@ -87,7 +88,8 @@ export async function createGeminiEmbeddingProvider(
       throw new Error(`gemini embeddings failed: ${res.status} ${payload}`);
     }
     const payload = (await res.json()) as { embedding?: { values?: number[] } };
-    return payload.embedding?.values ?? [];
+    const embedding = payload.embedding?.values ?? [];
+    return embedding.length > 0 ? sanitizeAndNormalizeEmbedding(embedding) : [];
   };
 
   const embedBatch = async (texts: string[]): Promise<number[][]> => {
@@ -110,7 +112,10 @@ export async function createGeminiEmbeddingProvider(
     }
     const payload = (await res.json()) as { embeddings?: Array<{ values?: number[] }> };
     const embeddings = Array.isArray(payload.embeddings) ? payload.embeddings : [];
-    return texts.map((_, index) => embeddings[index]?.values ?? []);
+    return texts.map((_, index) => {
+      const embedding = embeddings[index]?.values ?? [];
+      return embedding.length > 0 ? sanitizeAndNormalizeEmbedding(embedding) : [];
+    });
   };
 
   return {

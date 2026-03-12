@@ -318,6 +318,8 @@ export type PluginHookAgentContext = {
   sessionId?: string;
   workspaceDir?: string;
   messageProvider?: string;
+  trigger?: string;
+  channelId?: string;
 };
 
 // before_agent_start hook
