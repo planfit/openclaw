@@ -212,6 +212,18 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
 
     const fallbackSummary = `${FALLBACK_SUMMARY}${toolFailureSection}${fileOpsSummary}`;
 
+    // Apply keepTailMessages before any early returns
+    // runtime is already declared above at line 193
+    const keepTailMessages = runtime?.keepTailMessages ?? 0;
+    let messagesToSummarize = preparation.messagesToSummarize;
+
+    if (keepTailMessages > 0 && messagesToSummarize.length > keepTailMessages) {
+      messagesToSummarize = messagesToSummarize.slice(0, -keepTailMessages);
+      console.warn(
+        `Compaction safeguard: preserving ${keepTailMessages} tail messages (${keepTailMessages} preserved, ${messagesToSummarize.length} to summarize)`,
+      );
+    }
+
     const model = ctx.model;
     if (!model) {
       return {
@@ -237,11 +249,9 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
     }
 
     try {
-      const runtime = getCompactionSafeguardRuntime(ctx.sessionManager);
       const modelContextWindow = resolveContextWindowTokens(model);
       const contextWindowTokens = runtime?.contextWindowTokens ?? modelContextWindow;
       const turnPrefixMessages = preparation.turnPrefixMessages ?? [];
-      let messagesToSummarize = preparation.messagesToSummarize;
 
       const maxHistoryShare = runtime?.maxHistoryShare ?? 0.5;
 

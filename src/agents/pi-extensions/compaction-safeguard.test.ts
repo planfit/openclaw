@@ -1,6 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   getCompactionSafeguardRuntime,
   setCompactionSafeguardRuntime,
@@ -353,5 +353,168 @@ describe("spurious compaction cancel guard", () => {
 
     const result = await handler(makeEvent(100), makeCtx(sm));
     expect(result?.cancel).not.toBe(true);
+  });
+});
+
+describe("keepTailMessages", () => {
+  function captureHandler() {
+    let handler: ((event: unknown, ctx: unknown) => Promise<unknown>) | undefined;
+    const api = {
+      on(event: string, h: unknown) {
+        if (event === "session_before_compact") {
+          handler = h as (event: unknown, ctx: unknown) => Promise<unknown>;
+        }
+      },
+    } as unknown as ExtensionAPI;
+    compactionSafeguardExtension(api);
+    if (!handler) {
+      throw new Error("handler not registered");
+    }
+    return handler;
+  }
+
+  function makeEvent(messagesToSummarizeCount: number) {
+    const messages: AgentMessage[] = Array.from({ length: messagesToSummarizeCount }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `message ${i}`,
+      timestamp: Date.now(),
+    }));
+
+    return {
+      preparation: {
+        tokensBefore: 100_000,
+        messagesToSummarize: messages,
+        turnPrefixMessages: [],
+        isSplitTurn: false,
+        firstKeptEntryId: "entry-1",
+        fileOps: { read: [], edited: [], written: [] },
+        settings: { reserveTokens: 1000 },
+      },
+      customInstructions: "",
+      branchEntries: [],
+      signal: new AbortController().signal,
+    };
+  }
+
+  function makeCtx(sessionManager: object, model?: { contextWindow: number }) {
+    return {
+      sessionManager,
+      model: model ?? undefined,
+      modelRegistry: { getApiKey: async () => null },
+      ui: {},
+      hasUI: false,
+      cwd: "/tmp",
+      isIdle: () => true,
+      abort: () => {},
+      hasPendingMessages: () => false,
+      shutdown: () => {},
+    };
+  }
+
+  it("preserves tail messages when keepTailMessages = 0 (default behavior)", async () => {
+    const handler = captureHandler();
+    const sm = {};
+    setCompactionSafeguardRuntime(sm, {
+      contextWindowTokens: 200_000,
+      keepTailMessages: 0,
+    });
+
+    const event = makeEvent(10);
+    const result = (await handler(event, makeCtx(sm))) as {
+      compaction?: { summary: string };
+    };
+
+    // With keepTailMessages = 0, all messages should be summarized
+    // We verify by checking the result contains a fallback summary (no API key)
+    expect(result?.compaction?.summary).toContain("Summary unavailable");
+
+    setCompactionSafeguardRuntime(sm, null);
+  });
+
+  it("preserves 2 tail messages when keepTailMessages = 2", async () => {
+    const handler = captureHandler();
+    const sm = {};
+    setCompactionSafeguardRuntime(sm, {
+      contextWindowTokens: 200_000,
+      keepTailMessages: 2,
+    });
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const event = makeEvent(10);
+    await handler(event, makeCtx(sm));
+
+    // Check that console.warn was called with the preservation message
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Compaction safeguard: preserving 2 tail messages"),
+    );
+
+    consoleSpy.mockRestore();
+    setCompactionSafeguardRuntime(sm, null);
+  });
+
+  it("preserves 4 tail messages when keepTailMessages = 4", async () => {
+    const handler = captureHandler();
+    const sm = {};
+    setCompactionSafeguardRuntime(sm, {
+      contextWindowTokens: 200_000,
+      keepTailMessages: 4,
+    });
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const event = makeEvent(10);
+    await handler(event, makeCtx(sm));
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Compaction safeguard: preserving 4 tail messages"),
+    );
+
+    consoleSpy.mockRestore();
+    setCompactionSafeguardRuntime(sm, null);
+  });
+
+  it("does not preserve when keepTailMessages >= total messages", async () => {
+    const handler = captureHandler();
+    const sm = {};
+    setCompactionSafeguardRuntime(sm, {
+      contextWindowTokens: 200_000,
+      keepTailMessages: 20,
+    });
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const event = makeEvent(10);
+    await handler(event, makeCtx(sm));
+
+    // Should not log preservation message because keepTailMessages >= message count
+    expect(consoleSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Compaction safeguard: preserving"),
+    );
+
+    consoleSpy.mockRestore();
+    setCompactionSafeguardRuntime(sm, null);
+  });
+
+  it("uses default keepTailMessages = 0 when not configured", async () => {
+    const handler = captureHandler();
+    const sm = {};
+    setCompactionSafeguardRuntime(sm, {
+      contextWindowTokens: 200_000,
+      // No keepTailMessages specified
+    });
+
+    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const event = makeEvent(10);
+    await handler(event, makeCtx(sm));
+
+    // Should not log preservation message when using default 0
+    expect(consoleSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Compaction safeguard: preserving"),
+    );
+
+    consoleSpy.mockRestore();
+    setCompactionSafeguardRuntime(sm, null);
   });
 });

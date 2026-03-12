@@ -93,6 +93,7 @@ export function buildEmbeddedExtensionPaths(params: {
       maxHistoryShare: compactionCfg?.maxHistoryShare,
       contextWindowTokens: contextWindowInfo.tokens,
       workspaceDir: params.workspaceDir,
+      keepTailMessages: compactionCfg?.keepTailMessages,
     });
     paths.push(resolvePiExtensionPath("compaction-safeguard"));
   }
