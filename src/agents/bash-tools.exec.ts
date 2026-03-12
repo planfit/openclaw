@@ -182,6 +182,11 @@ export type ExecToolDefaults = {
   messageProvider?: string;
   notifyOnExit?: boolean;
   cwd?: string;
+  blockPatterns?: Array<{
+    pattern: string;
+    unless?: string;
+    message?: string;
+  }>;
 };
 
 export type { BashSandboxConfig } from "./bash-tools.shared.js";
@@ -847,6 +852,19 @@ export function createExecTool(
 
       if (!params.command) {
         throw new Error("Provide a command to start.");
+      }
+
+      // Block patterns check
+      const blockPatterns = defaults?.blockPatterns;
+      if (blockPatterns && blockPatterns.length > 0) {
+        for (const rule of blockPatterns) {
+          if (params.command.includes(rule.pattern)) {
+            if (rule.unless && params.command.includes(rule.unless)) {
+              continue; // exception matched, allow
+            }
+            throw new Error(rule.message ?? `Command blocked: matches pattern "${rule.pattern}"`);
+          }
+        }
       }
 
       const maxOutput = DEFAULT_MAX_OUTPUT;

@@ -293,6 +293,17 @@ export const AgentToolsSchema = z
           })
           .strict()
           .optional(),
+        blockPatterns: z
+          .array(
+            z
+              .object({
+                pattern: z.string(),
+                unless: z.string().optional(),
+                message: z.string().optional(),
+              })
+              .strict(),
+          )
+          .optional(),
       })
       .strict()
       .optional(),
@@ -543,6 +554,17 @@ export const ToolsSchema = z
             allowModels: z.array(z.string()).optional(),
           })
           .strict()
+          .optional(),
+        blockPatterns: z
+          .array(
+            z
+              .object({
+                pattern: z.string(),
+                unless: z.string().optional(),
+                message: z.string().optional(),
+              })
+              .strict(),
+          )
           .optional(),
       })
       .strict()

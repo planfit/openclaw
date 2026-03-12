@@ -193,6 +193,15 @@ export type ExecToolConfig = {
      */
     allowModels?: string[];
   };
+  /** Command block patterns to prevent specific commands. */
+  blockPatterns?: Array<{
+    /** Shell command pattern to match (substring match). */
+    pattern: string;
+    /** If command contains this string, allow it (exception). */
+    unless?: string;
+    /** Custom error message when blocked. */
+    message?: string;
+  }>;
 };
 
 export type AgentToolsConfig = {
