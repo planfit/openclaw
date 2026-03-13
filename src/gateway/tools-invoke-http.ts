@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createOpenClawTools } from "../agents/openclaw-tools.js";
+import { runBeforeToolCallHook } from "../agents/pi-tools.before-tool-call.js";
 import {
   filterToolsByPolicy,
   resolveEffectiveToolPolicy,
@@ -307,14 +308,31 @@ export async function handleToolsInvokeHttpRequest(
   }
 
   try {
+    const toolCallId = `http-${Date.now()}`;
     const toolArgs = mergeActionIntoArgsIfSupported({
       // oxlint-disable-next-line typescript/no-explicit-any
       toolSchema: (tool as any).parameters,
       action,
       args,
     });
+    const hookResult = await runBeforeToolCallHook({
+      toolName,
+      params: toolArgs,
+      toolCallId,
+      ctx: {
+        agentId,
+        sessionKey,
+      },
+    });
+    if (hookResult.blocked) {
+      sendJson(res, 403, {
+        ok: false,
+        error: { type: "tool_call_blocked", message: hookResult.reason },
+      });
+      return true;
+    }
     // oxlint-disable-next-line typescript/no-explicit-any
-    const result = await (tool as any).execute?.(`http-${Date.now()}`, toolArgs);
+    const result = await (tool as any).execute?.(toolCallId, hookResult.params);
     sendJson(res, 200, { ok: true, result });
   } catch (err) {
     sendJson(res, 400, {
