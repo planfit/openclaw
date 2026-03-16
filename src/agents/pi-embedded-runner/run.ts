@@ -20,7 +20,12 @@ import {
   resolveContextWindowInfo,
 } from "../context-window-guard.js";
 import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../defaults.js";
-import { FailoverError, resolveFailoverStatus } from "../failover-error.js";
+import {
+  coerceToFailoverError,
+  describeFailoverError,
+  FailoverError,
+  resolveFailoverStatus,
+} from "../failover-error.js";
 import {
   ensureAuthProfileStore,
   getApiKeyForModel,
@@ -654,7 +659,15 @@ export async function runEmbeddedPiAgent(
           }
 
           if (promptError && !aborted) {
-            const errorText = describeUnknownError(promptError);
+            const normalizedPromptFailover = coerceToFailoverError(promptError, {
+              provider: provider,
+              model: modelId,
+              profileId: lastProfileId,
+            });
+            const promptErrorDetails = normalizedPromptFailover
+              ? describeFailoverError(normalizedPromptFailover)
+              : describeFailoverError(promptError);
+            const errorText = promptErrorDetails.message || describeUnknownError(promptError);
             // Handle role ordering errors with a user-friendly message
             if (/incorrect role information|roles must alternate/i.test(errorText)) {
               return {
@@ -706,7 +719,8 @@ export async function runEmbeddedPiAgent(
                 },
               };
             }
-            const promptFailoverReason = classifyFailoverReason(errorText);
+            const promptFailoverReason =
+              promptErrorDetails.reason ?? classifyFailoverReason(errorText);
             if (promptFailoverReason && promptFailoverReason !== "timeout" && lastProfileId) {
               await markAuthProfileFailure({
                 store: authStore,
@@ -716,8 +730,10 @@ export async function runEmbeddedPiAgent(
                 agentDir: params.agentDir,
               });
             }
+            const promptFailoverFailure =
+              promptFailoverReason !== null || isFailoverErrorMessage(errorText);
             if (
-              isFailoverErrorMessage(errorText) &&
+              promptFailoverFailure &&
               promptFailoverReason !== "timeout" &&
               (await advanceAuthProfile())
             ) {
@@ -736,14 +752,17 @@ export async function runEmbeddedPiAgent(
             }
             // FIX: Throw FailoverError for prompt errors when fallbacks configured
             // This enables model fallback for quota/rate limit errors during prompt submission
-            if (fallbackConfigured && isFailoverErrorMessage(errorText)) {
-              throw new FailoverError(errorText, {
-                reason: promptFailoverReason ?? "unknown",
-                provider,
-                model: modelId,
-                profileId: lastProfileId,
-                status: resolveFailoverStatus(promptFailoverReason ?? "unknown"),
-              });
+            if (fallbackConfigured && promptFailoverFailure) {
+              throw (
+                normalizedPromptFailover ??
+                new FailoverError(errorText, {
+                  reason: promptFailoverReason ?? "unknown",
+                  provider,
+                  model: modelId,
+                  profileId: lastProfileId,
+                  status: resolveFailoverStatus(promptFailoverReason ?? "unknown"),
+                })
+              );
             }
             throw promptError;
           }

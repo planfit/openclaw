@@ -94,6 +94,7 @@ export const AgentDefaultsSchema = z
         reserveTokensFloor: z.number().int().nonnegative().optional(),
         maxHistoryShare: z.number().min(0.1).max(0.9).optional(),
         keepTailMessages: z.number().int().nonnegative().optional(),
+        customInstructions: z.string().optional(),
         memoryFlush: z
           .object({
             enabled: z.boolean().optional(),

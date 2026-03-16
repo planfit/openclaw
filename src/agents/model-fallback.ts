@@ -269,14 +269,14 @@ export async function runWithModelFallback<T>(params: {
         attempts,
       };
     } catch (err) {
-      if (shouldRethrowAbort(err)) {
+      const normalizedFailover = coerceToFailoverError(err, {
+        provider: candidate.provider,
+        model: candidate.model,
+      });
+      if (shouldRethrowAbort(err) && !normalizedFailover) {
         throw err;
       }
-      const normalized =
-        coerceToFailoverError(err, {
-          provider: candidate.provider,
-          model: candidate.model,
-        }) ?? err;
+      const normalized = normalizedFailover ?? err;
       if (!isFailoverError(normalized)) {
         throw err;
       }
@@ -362,10 +362,14 @@ export async function runWithImageModelFallback<T>(params: {
         attempts,
       };
     } catch (err) {
-      if (shouldRethrowAbort(err)) {
+      const normalizedFailover = coerceToFailoverError(err, {
+        provider: candidate.provider,
+        model: candidate.model,
+      });
+      if (shouldRethrowAbort(err) && !normalizedFailover) {
         throw err;
       }
-      lastError = err;
+      lastError = normalizedFailover ?? err;
       attempts.push({
         provider: candidate.provider,
         model: candidate.model,
@@ -374,7 +378,7 @@ export async function runWithImageModelFallback<T>(params: {
       await params.onError?.({
         provider: candidate.provider,
         model: candidate.model,
-        error: err,
+        error: normalizedFailover ?? err,
         attempt: i + 1,
         total: candidates.length,
       });
