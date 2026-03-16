@@ -13,6 +13,10 @@ import {
   resolveContextWindowTokens,
   summarizeInStages,
 } from "../compaction.js";
+import {
+  composeSplitTurnInstructions,
+  resolveCompactionInstructions,
+} from "./compaction-instructions.js";
 import { getCompactionSafeguardRuntime } from "./compaction-safeguard-runtime.js";
 const FALLBACK_SUMMARY =
   "Summary unavailable due to context limits. Older messages were truncated.";
@@ -162,7 +166,7 @@ function formatFileOperations(readFiles: string[], modifiedFiles: string[]): str
 
 export default function compactionSafeguardExtension(api: ExtensionAPI): void {
   api.on("session_before_compact", async (event, ctx) => {
-    const { preparation, customInstructions, signal } = event;
+    const { preparation, customInstructions: eventInstructions, signal } = event;
 
     // Cancel spurious compaction triggered by stale usage data.
     // After a recent compaction, the actual session tokens (tokensBefore) may be
@@ -191,6 +195,10 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
 
     // Resolve memory files for enriched summary
     const runtime = getCompactionSafeguardRuntime(ctx.sessionManager);
+    const customInstructions = resolveCompactionInstructions(
+      eventInstructions,
+      runtime?.customInstructions,
+    );
     let memoryFiles: string[] = [];
     if (runtime?.workspaceDir) {
       try {
@@ -352,7 +360,10 @@ export default function compactionSafeguardExtension(api: ExtensionAPI): void {
           reserveTokens,
           maxChunkTokens,
           contextWindow: contextWindowTokens,
-          customInstructions: TURN_PREFIX_INSTRUCTIONS,
+          customInstructions: composeSplitTurnInstructions(
+            TURN_PREFIX_INSTRUCTIONS,
+            customInstructions,
+          ),
           previousSummary: undefined,
         });
         summary = `${historySummary}\n\n---\n\n**Turn Context (split turn):**\n\n${prefixSummary}`;

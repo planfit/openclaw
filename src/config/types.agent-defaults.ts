@@ -254,6 +254,7 @@ export type AgentCompactionConfig = {
   maxHistoryShare?: number;
   /** Number of recent messages to preserve verbatim during compaction (default: 0). */
   keepTailMessages?: number;
+  customInstructions?: string;
   /** Pre-compaction memory flush (agentic turn). Default: enabled. */
   memoryFlush?: AgentCompactionMemoryFlushConfig;
 };

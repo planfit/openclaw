@@ -3,6 +3,7 @@ export type CompactionSafeguardRuntimeValue = {
   contextWindowTokens?: number;
   workspaceDir?: string;
   keepTailMessages?: number;
+  customInstructions?: string;
 };
 
 // Session-scoped runtime registry keyed by object identity.

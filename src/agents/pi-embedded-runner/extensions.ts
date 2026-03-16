@@ -94,6 +94,7 @@ export function buildEmbeddedExtensionPaths(params: {
       contextWindowTokens: contextWindowInfo.tokens,
       workspaceDir: params.workspaceDir,
       keepTailMessages: compactionCfg?.keepTailMessages,
+      customInstructions: compactionCfg?.customInstructions,
     });
     paths.push(resolvePiExtensionPath("compaction-safeguard"));
   }
