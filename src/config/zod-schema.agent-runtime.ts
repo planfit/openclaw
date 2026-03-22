@@ -307,6 +307,21 @@ export const AgentToolsSchema = z
       })
       .strict()
       .optional(),
+    fileTools: z
+      .object({
+        blockPaths: z
+          .array(
+            z
+              .object({
+                pattern: z.string(),
+                message: z.string().optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
     sandbox: z
       .object({
         tools: ToolPolicySchema,
@@ -561,6 +576,21 @@ export const ToolsSchema = z
               .object({
                 pattern: z.string(),
                 unless: z.string().optional(),
+                message: z.string().optional(),
+              })
+              .strict(),
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    fileTools: z
+      .object({
+        blockPaths: z
+          .array(
+            z
+              .object({
+                pattern: z.string(),
                 message: z.string().optional(),
               })
               .strict(),

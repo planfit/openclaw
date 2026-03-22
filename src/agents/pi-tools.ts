@@ -41,6 +41,7 @@ import {
   createSandboxedWriteTool,
   normalizeToolParams,
   patchToolSchemaForClaudeCompatibility,
+  wrapFilePathBlockGuard,
   wrapToolParamNormalization,
 } from "./pi-tools.read.js";
 import { cleanToolSchemaForGemini, normalizeToolParameters } from "./pi-tools.schema.js";
@@ -103,6 +104,13 @@ function resolveExecConfig(cfg: OpenClawConfig | undefined) {
     notifyOnExit: globalExec?.notifyOnExit,
     applyPatch: globalExec?.applyPatch,
     blockPatterns: globalExec?.blockPatterns,
+  };
+}
+
+function resolveFileToolsConfig(cfg: OpenClawConfig | undefined) {
+  const globalFileTools = cfg?.tools?.fileTools;
+  return {
+    blockPaths: globalFileTools?.blockPaths,
   };
 }
 
@@ -231,6 +239,7 @@ export function createOpenClawCodingTools(options?: {
     subagentPolicy,
   ]);
   const execConfig = resolveExecConfig(options?.config);
+  const fileToolsConfig = resolveFileToolsConfig(options?.config);
   const sandboxRoot = sandbox?.workspaceDir;
   const allowWorkspaceWrites = sandbox?.workspaceAccess !== "ro";
   const workspaceRoot = options?.workspaceDir ?? process.cwd();
@@ -260,16 +269,22 @@ export function createOpenClawCodingTools(options?: {
         return [];
       }
       // Wrap with param normalization for Claude Code compatibility
-      return [
-        wrapToolParamNormalization(createWriteTool(workspaceRoot), CLAUDE_PARAM_GROUPS.write),
-      ];
+      const normalized = wrapToolParamNormalization(
+        createWriteTool(workspaceRoot),
+        CLAUDE_PARAM_GROUPS.write,
+      );
+      return [wrapFilePathBlockGuard(normalized, fileToolsConfig.blockPaths, workspaceRoot)];
     }
     if (tool.name === "edit") {
       if (sandboxRoot) {
         return [];
       }
       // Wrap with param normalization for Claude Code compatibility
-      return [wrapToolParamNormalization(createEditTool(workspaceRoot), CLAUDE_PARAM_GROUPS.edit)];
+      const normalized = wrapToolParamNormalization(
+        createEditTool(workspaceRoot),
+        CLAUDE_PARAM_GROUPS.edit,
+      );
+      return [wrapFilePathBlockGuard(normalized, fileToolsConfig.blockPaths, workspaceRoot)];
     }
     return [tool];
   });
@@ -318,7 +333,18 @@ export function createOpenClawCodingTools(options?: {
     ...base,
     ...(sandboxRoot
       ? allowWorkspaceWrites
-        ? [createSandboxedEditTool(sandboxRoot), createSandboxedWriteTool(sandboxRoot)]
+        ? [
+            wrapFilePathBlockGuard(
+              createSandboxedEditTool(sandboxRoot),
+              fileToolsConfig.blockPaths,
+              sandboxRoot,
+            ),
+            wrapFilePathBlockGuard(
+              createSandboxedWriteTool(sandboxRoot),
+              fileToolsConfig.blockPaths,
+              sandboxRoot,
+            ),
+          ]
         : []
       : []),
     ...(applyPatchTool ? [applyPatchTool as unknown as AnyAgentTool] : []),

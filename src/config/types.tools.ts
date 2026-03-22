@@ -222,6 +222,8 @@ export type AgentToolsConfig = {
   };
   /** Exec tool defaults for this agent. */
   exec?: ExecToolConfig;
+  /** File tool configuration for this agent. */
+  fileTools?: FileToolsConfig;
   sandbox?: {
     tools?: {
       allow?: string[];
@@ -330,6 +332,15 @@ export type MemorySearchConfig = {
     /** Optional cap on cached embeddings (best-effort). */
     maxEntries?: number;
   };
+};
+
+export type FileToolsConfig = {
+  blockPaths?: Array<{
+    /** Substring match against resolved absolute file path */
+    pattern: string;
+    /** Custom error message when blocked */
+    message?: string;
+  }>;
 };
 
 export type ToolsConfig = {
@@ -471,6 +482,8 @@ export type ToolsConfig = {
   };
   /** Exec tool defaults. */
   exec?: ExecToolConfig;
+  /** File tool configuration. */
+  fileTools?: FileToolsConfig;
   /** Sub-agent tool policy defaults (deny wins). */
   subagents?: {
     /** Default model selection for spawned sub-agents (string or {primary,fallbacks}). */

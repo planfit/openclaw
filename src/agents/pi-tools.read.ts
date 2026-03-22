@@ -1,5 +1,6 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { createEditTool, createReadTool, createWriteTool } from "@mariozechner/pi-coding-agent";
+import path from "node:path";
 import type { AnyAgentTool } from "./pi-tools.types.js";
 import { detectMime } from "../media/mime.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
@@ -263,6 +264,44 @@ function wrapSandboxPathGuard(tool: AnyAgentTool, root: string): AnyAgentTool {
       if (typeof filePath === "string" && filePath.trim()) {
         await assertSandboxPath({ filePath, cwd: root, root });
       }
+      return tool.execute(toolCallId, normalized ?? args, signal, onUpdate);
+    },
+  };
+}
+
+export function wrapFilePathBlockGuard(
+  tool: AnyAgentTool,
+  blockPaths:
+    | Array<{
+        pattern: string;
+        message?: string;
+      }>
+    | undefined,
+  cwd: string,
+): AnyAgentTool {
+  if (!blockPaths || blockPaths.length === 0) {
+    return tool;
+  }
+
+  return {
+    ...tool,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      const normalized = normalizeToolParams(args);
+      const record =
+        normalized ??
+        (args && typeof args === "object" ? (args as Record<string, unknown>) : undefined);
+      const filePath = record?.path;
+
+      if (typeof filePath === "string" && filePath.trim()) {
+        const resolvedPath = path.resolve(cwd, filePath);
+
+        for (const rule of blockPaths) {
+          if (resolvedPath.includes(rule.pattern)) {
+            throw new Error(rule.message ?? `File path blocked: matches pattern "${rule.pattern}"`);
+          }
+        }
+      }
+
       return tool.execute(toolCallId, normalized ?? args, signal, onUpdate);
     },
   };
