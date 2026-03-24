@@ -45,6 +45,9 @@ const GOOGLE_SCHEMA_UNSUPPORTED_KEYWORDS = new Set([
 ]);
 const ANTIGRAVITY_SIGNATURE_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
+type AssistantHistoryMessage = Extract<AgentMessage, { role: "assistant" }>;
+type RawAssistantHistoryMessage = Omit<AssistantHistoryMessage, "content"> & { content?: unknown };
+
 function isValidAntigravitySignature(value: unknown): value is string {
   if (typeof value !== "string") {
     return false;
@@ -57,6 +60,61 @@ function isValidAntigravitySignature(value: unknown): value is string {
     return false;
   }
   return ANTIGRAVITY_SIGNATURE_RE.test(trimmed);
+}
+
+function describeAssistantContentKind(content: unknown): string {
+  if (Array.isArray(content)) {
+    return "array";
+  }
+  if (content === null) {
+    return "null";
+  }
+  return typeof content;
+}
+
+function canonicalizeAssistantHistoryMessages(params: {
+  messages: AgentMessage[];
+  sessionId: string;
+}): AgentMessage[] {
+  let touched = false;
+  let repairedCount = 0;
+  const repairedKinds = new Set<string>();
+  const out: AgentMessage[] = [];
+
+  for (const msg of params.messages) {
+    if (!msg || typeof msg !== "object" || msg.role !== "assistant") {
+      out.push(msg);
+      continue;
+    }
+
+    const assistant = msg as RawAssistantHistoryMessage;
+    if (Array.isArray(assistant.content)) {
+      out.push(msg);
+      continue;
+    }
+
+    // Session transcripts and custom stream boundaries have historically leaked
+    // malformed assistant payloads. Repair them here so Pi replay only sees the
+    // canonical array-based assistant content contract.
+    const repairedText = typeof assistant.content === "string" ? assistant.content : "";
+    out.push({
+      ...(assistant as unknown as Record<string, unknown>),
+      content: [{ type: "text", text: repairedText }],
+    } as AgentMessage);
+    touched = true;
+    repairedCount += 1;
+    repairedKinds.add(describeAssistantContentKind(assistant.content));
+  }
+
+  if (!touched) {
+    return params.messages;
+  }
+
+  log.warn(
+    `sanitizeSessionHistory: canonicalized ${repairedCount} malformed assistant message(s) before replay ` +
+      `session=${params.sessionId} contentKinds=${Array.from(repairedKinds).join(",")}`,
+  );
+  return out;
 }
 
 export function sanitizeAntigravityThinkingBlocks(messages: AgentMessage[]): AgentMessage[] {
@@ -339,13 +397,21 @@ export async function sanitizeSessionHistory(params: {
       provider: params.provider,
       modelId: params.modelId,
     });
-  const sanitizedImages = await sanitizeSessionMessagesImages(params.messages, "session:history", {
-    sanitizeMode: policy.sanitizeMode,
-    sanitizeToolCallIds: policy.sanitizeToolCallIds,
-    toolCallIdMode: policy.toolCallIdMode,
-    preserveSignatures: policy.preserveSignatures,
-    sanitizeThoughtSignatures: policy.sanitizeThoughtSignatures,
+  const canonicalizedAssistantHistory = canonicalizeAssistantHistoryMessages({
+    messages: params.messages,
+    sessionId: params.sessionId,
   });
+  const sanitizedImages = await sanitizeSessionMessagesImages(
+    canonicalizedAssistantHistory,
+    "session:history",
+    {
+      sanitizeMode: policy.sanitizeMode,
+      sanitizeToolCallIds: policy.sanitizeToolCallIds,
+      toolCallIdMode: policy.toolCallIdMode,
+      preserveSignatures: policy.preserveSignatures,
+      sanitizeThoughtSignatures: policy.sanitizeThoughtSignatures,
+    },
+  );
   const sanitizedThinking = policy.normalizeAntigravityThinkingBlocks
     ? sanitizeAntigravityThinkingBlocks(sanitizedImages)
     : sanitizedImages;
