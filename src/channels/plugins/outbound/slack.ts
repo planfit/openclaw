@@ -5,7 +5,7 @@ import { sendMessageSlack } from "../../../slack/send.js";
 export const slackOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
   chunker: null,
-  textChunkLimit: 4000,
+  textChunkLimit: 8000,
   sendText: async ({ to, text, accountId, deps, replyToId, threadId }) => {
     const send = deps?.sendSlack ?? sendMessageSlack;
     // Use threadId fallback so routed tool notifications stay in the Slack thread.

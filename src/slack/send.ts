@@ -13,10 +13,9 @@ import { loadWebMedia } from "../media/load-web-media.js";
 import { resolveSlackAccount } from "./accounts.js";
 import { createSlackWebClient } from "./client.js";
 import { markdownToSlackMrkdwnChunks } from "./format.js";
+import { SLACK_TEXT_LIMIT } from "./limits.js";
 import { parseSlackTarget } from "./targets.js";
 import { resolveSlackBotToken } from "./token.js";
-
-const SLACK_TEXT_LIMIT = 4000;
 
 type SlackRecipient =
   | {
@@ -152,7 +151,9 @@ export async function sendMessageSlack(
   const recipient = parseRecipient(to);
   const { channelId } = await resolveChannelId(client, recipient);
   logInfo(`[slack:send] channelId=${channelId} threadTs=${String(opts.threadTs ?? "undefined")}`);
-  const textLimit = resolveTextChunkLimit(cfg, "slack", account.accountId);
+  const textLimit = resolveTextChunkLimit(cfg, "slack", account.accountId, {
+    fallbackLimit: SLACK_TEXT_LIMIT,
+  });
   const chunkLimit = Math.min(textLimit, SLACK_TEXT_LIMIT);
   const tableMode = resolveMarkdownTableMode({
     cfg,
