@@ -4,7 +4,6 @@ import { normalizeChannelId } from "../channels/plugins/index.js";
 import { agentCommand } from "../commands/agent.js";
 import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
-import { ackDelivery, enqueueDelivery, failDelivery } from "../infra/outbound/delivery-queue.js";
 import { resolveOutboundTarget } from "../infra/outbound/targets.js";
 import {
   consumeRestartSentinel,
@@ -122,17 +121,6 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
     sessionThreadId ??
     (origin?.threadId != null ? String(origin.threadId) : undefined);
 
-  // Persist one recoverable notice across the whole retry loop so a transient
-  // failure does not leave behind a stale duplicate queue entry.
-  const queueId = await enqueueDelivery({
-    channel,
-    to: resolved.to,
-    accountId: origin?.accountId,
-    threadId,
-    payloads: [{ text: message }],
-    bestEffort: false,
-  }).catch(() => null);
-
   for (let attempt = 1; attempt <= OUTBOUND_MAX_ATTEMPTS; attempt += 1) {
     try {
       await agentCommand(
@@ -149,9 +137,6 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
         defaultRuntime,
         params.deps,
       );
-      if (queueId) {
-        await ackDelivery(queueId).catch(() => {});
-      }
       return;
     } catch (err) {
       const retrying = attempt < OUTBOUND_MAX_ATTEMPTS;
@@ -164,11 +149,6 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
         maxAttempts: OUTBOUND_MAX_ATTEMPTS,
       });
       if (!retrying) {
-        if (queueId) {
-          await failDelivery(queueId, err instanceof Error ? err.message : String(err)).catch(
-            () => {},
-          );
-        }
         return;
       }
       await waitForOutboundRetry(OUTBOUND_RETRY_DELAY_MS);
