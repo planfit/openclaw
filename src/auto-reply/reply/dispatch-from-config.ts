@@ -381,10 +381,7 @@ export async function dispatchReplyFromConfig(params: {
       const conversationId = ctx.OriginatingTo ?? ctx.To ?? ctx.From ?? undefined;
       const senderId = ctx.SenderId ?? ctx.From ?? undefined;
       const isGroup =
-        ctx.ChatType === "group" ||
-        ctx.ChatType === "channel" ||
-        Boolean(ctx.GroupChannel) ||
-        Boolean(ctx.GroupName);
+        ctx.ChatType === "group" || ctx.ChatType === "channel" || Boolean(ctx.GroupChannel);
 
       const beforeDispatchResult = await hookRunner.runBeforeDispatch(
         {

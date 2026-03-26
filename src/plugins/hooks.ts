@@ -262,11 +262,24 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     event: PluginHookBeforeDispatchEvent,
     ctx: PluginHookBeforeDispatchContext,
   ): Promise<PluginHookBeforeDispatchResult | undefined> {
-    return runClaimingHook<"before_dispatch", PluginHookBeforeDispatchResult>(
-      "before_dispatch",
-      event,
-      ctx,
-    );
+    const hooks = getHooksForName(registry, "before_dispatch");
+    for (const registration of hooks) {
+      try {
+        const result = await registration.handler(event, ctx);
+        if (result && result.handled) {
+          return result;
+        }
+      } catch (err) {
+        if (catchErrors) {
+          logger?.error?.(
+            `[before_dispatch] hook error in plugin ${registration.pluginId}: ${String(err)}`,
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+    return undefined;
   }
 
   /**
