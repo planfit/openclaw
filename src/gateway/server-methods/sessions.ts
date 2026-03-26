@@ -13,6 +13,12 @@ import {
   type SessionEntry,
   updateSessionStore,
 } from "../../config/sessions.js";
+import {
+  hasInternalHookListeners,
+  triggerInternalHook,
+  type SessionPatchHookContext,
+  type SessionPatchHookEvent,
+} from "../../hooks/internal-hooks.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import {
   ErrorCodes,
@@ -196,6 +202,24 @@ export const sessionsHandlers: GatewayRequestHandlers = {
       respond(false, undefined, applied.error);
       return;
     }
+
+    if (hasInternalHookListeners("session", "patch")) {
+      const hookContext: SessionPatchHookContext = structuredClone({
+        sessionEntry: applied.entry,
+        patch: p,
+        cfg,
+      });
+      const hookEvent: SessionPatchHookEvent = {
+        type: "session",
+        action: "patch",
+        sessionKey: target.canonicalKey ?? key,
+        context: hookContext,
+        timestamp: new Date(),
+        messages: [],
+      };
+      void triggerInternalHook(hookEvent);
+    }
+
     const parsed = parseAgentSessionKey(target.canonicalKey ?? key);
     const agentId = normalizeAgentId(parsed?.agentId ?? resolveDefaultAgentId(cfg));
     const resolved = resolveSessionModelRef(cfg, applied.entry, agentId);
