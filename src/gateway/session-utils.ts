@@ -192,6 +192,32 @@ export function loadSessionEntry(sessionKey: string) {
   return { cfg, storePath, store, entry, canonicalKey };
 }
 
+export function resolveFreshestSessionStoreMatchFromStoreKeys(
+  store: Record<string, SessionEntry>,
+  storeKeys: string[],
+): { key: string; entry: SessionEntry } | undefined {
+  const matches = storeKeys
+    .map((key) => {
+      const entry = store[key];
+      return entry ? { key, entry } : undefined;
+    })
+    .filter((match): match is { key: string; entry: SessionEntry } => match !== undefined);
+  if (matches.length === 0) {
+    return undefined;
+  }
+  if (matches.length === 1) {
+    return matches[0];
+  }
+  return [...matches].toSorted((a, b) => (b.entry.updatedAt ?? 0) - (a.entry.updatedAt ?? 0))[0];
+}
+
+export function resolveFreshestSessionEntryFromStoreKeys(
+  store: Record<string, SessionEntry>,
+  storeKeys: string[],
+): SessionEntry | undefined {
+  return resolveFreshestSessionStoreMatchFromStoreKeys(store, storeKeys)?.entry;
+}
+
 export function classifySessionKey(key: string, entry?: SessionEntry): GatewaySessionRow["kind"] {
   if (key === "global") {
     return "global";

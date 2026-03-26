@@ -32,6 +32,7 @@ import {
   loadCombinedSessionStoreForGateway,
   loadSessionEntry,
   readSessionPreviewItemsFromTranscript,
+  resolveFreshestSessionEntryFromStoreKeys,
   resolveGatewaySessionStoreTarget,
   resolveSessionModelRef,
   resolveSessionTranscriptCandidates,
@@ -107,9 +108,7 @@ export const sessionsHandlers: GatewayRequestHandlers = {
         const target = resolveGatewaySessionStoreTarget({ cfg, key });
         const store = storeCache.get(target.storePath) ?? loadSessionStore(target.storePath);
         storeCache.set(target.storePath, store);
-        const entry =
-          target.storeKeys.map((candidate) => store[candidate]).find(Boolean) ??
-          store[target.canonicalKey];
+        const entry = resolveFreshestSessionEntryFromStoreKeys(store, target.storeKeys);
         if (!entry?.sessionId) {
           previews.push({ key, status: "missing", items: [] });
           continue;
