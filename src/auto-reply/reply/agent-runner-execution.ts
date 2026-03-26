@@ -16,6 +16,8 @@ import {
   isCompactionFailureError,
   isContextOverflowError,
   isLikelyContextOverflowError,
+  isOverloadedErrorMessage,
+  isRateLimitErrorMessage,
   sanitizeUserFacingText,
 } from "../../agents/pi-embedded-helpers.js";
 import { runEmbeddedPiAgent } from "../../agents/pi-embedded.js";
@@ -518,6 +520,40 @@ export async function runAgentTurnWithFallback(params: {
               text: "⚠️ Message ordering conflict. I've reset the conversation - please try again.",
             },
           };
+        }
+      }
+
+      // Surface rate limit and overload errors that occur mid-turn (after tool
+      // calls) instead of silently returning an empty response. See #36142.
+      // Only applies when the assistant produced no valid (non-error) reply text,
+      // so tool-level rate-limit messages don't override a successful turn.
+      const hasNonErrorContent = runResult.payloads?.some((p) => {
+        if (p.isError || p.isReasoning) {
+          return false;
+        }
+        // Check for actual content (text or media)
+        const hasText = typeof p.text === "string" && p.text.trim().length > 0;
+        const hasMedia =
+          typeof p.mediaUrl === "string" || (Array.isArray(p.mediaUrls) && p.mediaUrls.length > 0);
+        return hasText || hasMedia;
+      });
+
+      if (!hasNonErrorContent) {
+        const metaErrorMsg = embeddedError?.message ?? "";
+        const rawErrorPayloadText =
+          runResult.payloads?.find((p) => p.isError && p.text?.trim() && !p.text.startsWith("⚠️"))
+            ?.text ?? "";
+        const errorCandidate = metaErrorMsg || rawErrorPayloadText;
+        if (
+          errorCandidate &&
+          (isRateLimitErrorMessage(errorCandidate) || isOverloadedErrorMessage(errorCandidate))
+        ) {
+          runResult.payloads = [
+            {
+              text: "⚠️ API rate limit reached — the model couldn't generate a response. Please try again in a moment.",
+              isError: true,
+            },
+          ];
         }
       }
 

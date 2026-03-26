@@ -48,6 +48,8 @@ export type AuthProfileFailureReason =
 export type ProfileUsageStats = {
   lastUsed?: number;
   cooldownUntil?: number;
+  cooldownReason?: AuthProfileFailureReason;
+  cooldownModel?: string;
   disabledUntil?: number;
   disabledReason?: AuthProfileFailureReason;
   errorCount?: number;

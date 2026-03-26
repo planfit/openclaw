@@ -319,6 +319,105 @@ export async function dispatchReplyFromConfig(params: {
       return { queuedFinal, counts };
     }
 
+    // Helper to send final payload with TTS and routing.
+    const sendFinalPayload = async (
+      payload: ReplyPayload,
+    ): Promise<{ queuedFinal: boolean; routedFinalCount: number }> => {
+      const ttsPayload = await maybeApplyTtsToPayload({
+        payload,
+        cfg,
+        channel: ttsChannel,
+        kind: "final",
+        inboundAudio,
+        ttsAuto: sessionTtsAuto,
+      });
+      if (shouldRouteToOriginating && originatingChannel && originatingTo) {
+        const result = await routeReply({
+          payload: ttsPayload,
+          channel: originatingChannel,
+          to: originatingTo,
+          sessionKey: ctx.SessionKey,
+          accountId: ctx.AccountId,
+          threadId: ctx.MessageThreadId,
+          cfg,
+        });
+        if (!result.ok) {
+          logVerbose(
+            `dispatch-from-config: route-reply (final) failed: ${result.error ?? "unknown error"}`,
+          );
+        }
+        return {
+          queuedFinal: result.ok,
+          routedFinalCount: result.ok ? 1 : 0,
+        };
+      }
+      return {
+        queuedFinal: dispatcher.sendFinalReply(ttsPayload),
+        routedFinalCount: 0,
+      };
+    };
+
+    // Run before_dispatch hook — let plugins inspect or handle before model dispatch.
+    if (hookRunner?.hasHooks("before_dispatch")) {
+      const timestamp =
+        typeof ctx.Timestamp === "number" && Number.isFinite(ctx.Timestamp)
+          ? ctx.Timestamp
+          : undefined;
+      const content =
+        typeof ctx.BodyForCommands === "string"
+          ? ctx.BodyForCommands
+          : typeof ctx.RawBody === "string"
+            ? ctx.RawBody
+            : typeof ctx.Body === "string"
+              ? ctx.Body
+              : "";
+      const bodyForAgent =
+        typeof ctx.BodyForAgent === "string"
+          ? ctx.BodyForAgent
+          : typeof ctx.Body === "string"
+            ? ctx.Body
+            : "";
+      const channelId = (ctx.OriginatingChannel ?? ctx.Surface ?? ctx.Provider ?? "").toLowerCase();
+      const conversationId = ctx.OriginatingTo ?? ctx.To ?? ctx.From ?? undefined;
+      const senderId = ctx.SenderId ?? ctx.From ?? undefined;
+      const isGroup =
+        ctx.ChatType === "group" || ctx.ChatType === "channel" || Boolean(ctx.GroupChannel);
+
+      const beforeDispatchResult = await hookRunner.runBeforeDispatch(
+        {
+          content,
+          body: bodyForAgent,
+          channel: channelId,
+          sessionKey: ctx.SessionKey,
+          senderId,
+          isGroup,
+          timestamp,
+        },
+        {
+          channelId,
+          accountId: ctx.AccountId,
+          conversationId,
+          sessionKey: ctx.SessionKey,
+          senderId,
+        },
+      );
+      if (beforeDispatchResult?.handled) {
+        const text = beforeDispatchResult.text;
+        let queuedFinal = false;
+        let routedFinalCount = 0;
+        if (text) {
+          const handledReply = await sendFinalPayload({ text });
+          queuedFinal = handledReply.queuedFinal;
+          routedFinalCount += handledReply.routedFinalCount;
+        }
+        const counts = dispatcher.getQueuedCounts();
+        counts.final += routedFinalCount;
+        recordProcessed("completed", { reason: "before_dispatch_handled" });
+        markIdle("message_completed");
+        return { queuedFinal, counts };
+      }
+    }
+
     // Track accumulated block text for TTS generation after streaming completes.
     // When block streaming succeeds, there's no final reply, so we need to generate
     // TTS audio separately from the accumulated block content.
@@ -386,48 +485,20 @@ export async function dispatchReplyFromConfig(params: {
     let queuedFinal = false;
     let routedFinalCount = 0;
     for (const reply of replies) {
-      const ttsReply = await maybeApplyTtsToPayload({
-        payload: reply,
-        cfg,
-        channel: ttsChannel,
-        kind: "final",
-        inboundAudio,
-        ttsAuto: sessionTtsAuto,
-      });
-      if (shouldRouteToOriginating && originatingChannel && originatingTo) {
-        // Add pacing delay between messages routed to external channels (Slack/Telegram)
-        // to prevent burst delivery. Skip delay for the first message.
-        if (routedFinalCount > 0) {
-          const delayMs = getHumanDelay(humanDelayConfig);
-          if (delayMs > 0) {
-            logVerbose(
-              `dispatch-from-config: final pacing delay ${delayMs}ms (msg #${routedFinalCount + 1})`,
-            );
-            await sleep(delayMs);
-          }
-        }
-        // Route final reply to originating channel.
-        const result = await routeReply({
-          payload: ttsReply,
-          channel: originatingChannel,
-          to: originatingTo,
-          sessionKey: ctx.SessionKey,
-          accountId: ctx.AccountId,
-          threadId: ctx.MessageThreadId,
-          cfg,
-        });
-        if (!result.ok) {
+      // Add pacing delay between messages routed to external channels (Slack/Telegram)
+      // to prevent burst delivery. Skip delay for the first message.
+      if (shouldRouteToOriginating && routedFinalCount > 0) {
+        const delayMs = getHumanDelay(humanDelayConfig);
+        if (delayMs > 0) {
           logVerbose(
-            `dispatch-from-config: route-reply (final) failed: ${result.error ?? "unknown error"}`,
+            `dispatch-from-config: final pacing delay ${delayMs}ms (msg #${routedFinalCount + 1})`,
           );
+          await sleep(delayMs);
         }
-        queuedFinal = result.ok || queuedFinal;
-        if (result.ok) {
-          routedFinalCount += 1;
-        }
-      } else {
-        queuedFinal = dispatcher.sendFinalReply(ttsReply) || queuedFinal;
       }
+      const finalReply = await sendFinalPayload(reply);
+      queuedFinal = finalReply.queuedFinal || queuedFinal;
+      routedFinalCount += finalReply.routedFinalCount;
     }
 
     const ttsMode = resolveTtsConfig(cfg).mode ?? "final";

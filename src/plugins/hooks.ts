@@ -14,6 +14,9 @@ import type {
   PluginHookBeforeAgentStartEvent,
   PluginHookBeforeAgentStartResult,
   PluginHookBeforeCompactionEvent,
+  PluginHookBeforeDispatchContext,
+  PluginHookBeforeDispatchEvent,
+  PluginHookBeforeDispatchResult,
   PluginHookBeforeToolCallEvent,
   PluginHookBeforeToolCallResult,
   PluginHookGatewayContext,
@@ -45,6 +48,9 @@ export type {
   PluginHookAfterCompactionEvent,
   PluginHookMessageContext,
   PluginHookMessageReceivedEvent,
+  PluginHookBeforeDispatchContext,
+  PluginHookBeforeDispatchEvent,
+  PluginHookBeforeDispatchResult,
   PluginHookMessageSendingEvent,
   PluginHookMessageSendingResult,
   PluginHookMessageSentEvent,
@@ -245,6 +251,35 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     ctx: PluginHookMessageContext,
   ): Promise<void> {
     return runVoidHook("message_received", event, ctx);
+  }
+
+  /**
+   * Run before_dispatch hook.
+   * Allows plugins to inspect or handle a message before model dispatch.
+   * First handler returning { handled: true } wins.
+   */
+  async function runBeforeDispatch(
+    event: PluginHookBeforeDispatchEvent,
+    ctx: PluginHookBeforeDispatchContext,
+  ): Promise<PluginHookBeforeDispatchResult | undefined> {
+    const hooks = getHooksForName(registry, "before_dispatch");
+    for (const registration of hooks) {
+      try {
+        const result = await registration.handler(event, ctx);
+        if (result && result.handled) {
+          return result;
+        }
+      } catch (err) {
+        if (catchErrors) {
+          logger?.error?.(
+            `[before_dispatch] hook error in plugin ${registration.pluginId}: ${String(err)}`,
+          );
+        } else {
+          throw err;
+        }
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -451,6 +486,7 @@ export function createHookRunner(registry: PluginRegistry, options: HookRunnerOp
     runAfterCompaction,
     // Message hooks
     runMessageReceived,
+    runBeforeDispatch,
     runMessageSending,
     runMessageSent,
     // Tool hooks
