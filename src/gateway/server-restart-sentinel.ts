@@ -3,6 +3,8 @@ import { resolveAnnounceTargetFromKey } from "../agents/tools/sessions-send-help
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { agentCommand } from "../commands/agent.js";
 import { resolveMainSessionKeyFromConfig } from "../config/sessions.js";
+import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
+import { ackDelivery, enqueueDelivery, failDelivery } from "../infra/outbound/delivery-queue.js";
 import { resolveOutboundTarget } from "../infra/outbound/targets.js";
 import {
   consumeRestartSentinel,
@@ -10,9 +12,38 @@ import {
   summarizeRestartSentinel,
 } from "../infra/restart-sentinel.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { defaultRuntime } from "../runtime.js";
 import { deliveryContextFromSession, mergeDeliveryContext } from "../utils/delivery-context.js";
 import { loadSessionEntry } from "./session-utils.js";
+
+const log = createSubsystemLogger("gateway/restart-sentinel");
+const OUTBOUND_RETRY_DELAY_MS = 750;
+const OUTBOUND_MAX_ATTEMPTS = 2;
+
+function enqueueRestartSentinelWake(
+  message: string,
+  sessionKey: string,
+  deliveryContext?: {
+    channel?: string;
+    to?: string;
+    accountId?: string;
+    threadId?: string | number;
+  },
+) {
+  enqueueSystemEvent(message, {
+    sessionKey,
+    ...(deliveryContext ? { deliveryContext } : {}),
+  });
+  requestHeartbeatNow({ reason: "wake", sessionKey });
+}
+
+async function waitForOutboundRetry(delayMs: number) {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, delayMs);
+    timer.unref?.();
+  });
+}
 
 export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
   const sentinel = await consumeRestartSentinel();
@@ -23,12 +54,20 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
   const sessionKey = payload.sessionKey?.trim();
   const message = formatRestartSentinelMessage(payload);
   const summary = summarizeRestartSentinel(payload);
+  const wakeDeliveryContext = mergeDeliveryContext(
+    payload.threadId != null
+      ? { ...payload.deliveryContext, threadId: payload.threadId }
+      : payload.deliveryContext,
+    undefined,
+  );
 
   if (!sessionKey) {
     const mainSessionKey = resolveMainSessionKeyFromConfig();
     enqueueSystemEvent(message, { sessionKey: mainSessionKey });
     return;
   }
+
+  enqueueRestartSentinelWake(message, sessionKey, wakeDeliveryContext);
 
   // Extract topic/thread ID from sessionKey (supports both :topic: and :thread:)
   // Telegram uses :topic:, other platforms use :thread:
@@ -63,7 +102,6 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
   const channel = channelRaw ? normalizeChannelId(channelRaw) : null;
   const to = origin?.to;
   if (!channel || !to) {
-    enqueueSystemEvent(message, { sessionKey });
     return;
   }
 
@@ -75,7 +113,6 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
     mode: "implicit",
   });
   if (!resolved.ok) {
-    enqueueSystemEvent(message, { sessionKey });
     return;
   }
 
@@ -85,23 +122,57 @@ export async function scheduleRestartSentinelWake(params: { deps: CliDeps }) {
     sessionThreadId ??
     (origin?.threadId != null ? String(origin.threadId) : undefined);
 
-  try {
-    await agentCommand(
-      {
-        message,
-        sessionKey,
-        to: resolved.to,
+  // Persist one recoverable notice across the whole retry loop so a transient
+  // failure does not leave behind a stale duplicate queue entry.
+  const queueId = await enqueueDelivery({
+    channel,
+    to: resolved.to,
+    accountId: origin?.accountId,
+    threadId,
+    payloads: [{ text: message }],
+    bestEffort: false,
+  }).catch(() => null);
+
+  for (let attempt = 1; attempt <= OUTBOUND_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await agentCommand(
+        {
+          message,
+          sessionKey,
+          to: resolved.to,
+          channel,
+          deliver: true,
+          bestEffortDeliver: false,
+          messageChannel: channel,
+          threadId,
+        },
+        defaultRuntime,
+        params.deps,
+      );
+      if (queueId) {
+        await ackDelivery(queueId).catch(() => {});
+      }
+      return;
+    } catch (err) {
+      const retrying = attempt < OUTBOUND_MAX_ATTEMPTS;
+      const suffix = retrying ? `; retrying in ${OUTBOUND_RETRY_DELAY_MS}ms` : "";
+      log.warn(`${summary}: outbound delivery failed${suffix}: ${String(err)}`, {
         channel,
-        deliver: true,
-        bestEffortDeliver: true,
-        messageChannel: channel,
-        threadId,
-      },
-      defaultRuntime,
-      params.deps,
-    );
-  } catch (err) {
-    enqueueSystemEvent(`${summary}\n${String(err)}`, { sessionKey });
+        to: resolved.to,
+        sessionKey,
+        attempt,
+        maxAttempts: OUTBOUND_MAX_ATTEMPTS,
+      });
+      if (!retrying) {
+        if (queueId) {
+          await failDelivery(queueId, err instanceof Error ? err.message : String(err)).catch(
+            () => {},
+          );
+        }
+        return;
+      }
+      await waitForOutboundRetry(OUTBOUND_RETRY_DELAY_MS);
+    }
   }
 }
 
