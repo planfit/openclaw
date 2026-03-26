@@ -301,6 +301,7 @@ export type PluginHookName =
   | "before_compaction"
   | "after_compaction"
   | "message_received"
+  | "before_dispatch"
   | "message_sending"
   | "message_sent"
   | "before_tool_call"
@@ -370,6 +371,39 @@ export type PluginHookMessageReceivedEvent = {
   content: string;
   timestamp?: number;
   metadata?: Record<string, unknown>;
+};
+
+// before_dispatch hook
+export type PluginHookBeforeDispatchEvent = {
+  /** Message text content. */
+  content: string;
+  /** Body text prepared for agent (after command parsing). */
+  body?: string;
+  /** Channel identifier (e.g. "telegram", "discord"). */
+  channel?: string;
+  /** Session key for this message. */
+  sessionKey?: string;
+  /** Sender identifier. */
+  senderId?: string;
+  /** Whether this is a group message. */
+  isGroup?: boolean;
+  /** Message timestamp. */
+  timestamp?: number;
+};
+
+export type PluginHookBeforeDispatchContext = {
+  channelId?: string;
+  accountId?: string;
+  conversationId?: string;
+  sessionKey?: string;
+  senderId?: string;
+};
+
+export type PluginHookBeforeDispatchResult = {
+  /** Whether the plugin handled this message (skips default dispatch). */
+  handled: boolean;
+  /** Plugin-defined reply text (used when handled=true). */
+  text?: string;
 };
 
 // message_sending hook
@@ -497,6 +531,10 @@ export type PluginHookHandlerMap = {
     event: PluginHookMessageReceivedEvent,
     ctx: PluginHookMessageContext,
   ) => Promise<void> | void;
+  before_dispatch: (
+    event: PluginHookBeforeDispatchEvent,
+    ctx: PluginHookBeforeDispatchContext,
+  ) => Promise<PluginHookBeforeDispatchResult | void> | PluginHookBeforeDispatchResult | void;
   message_sending: (
     event: PluginHookMessageSendingEvent,
     ctx: PluginHookMessageContext,
