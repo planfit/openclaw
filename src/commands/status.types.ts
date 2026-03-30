@@ -20,6 +20,8 @@ export type SessionStatus = {
   percentUsed: number | null;
   model: string | null;
   contextTokens: number | null;
+  cacheRead?: number;
+  cacheWrite?: number;
   flags: string[];
 };
 
