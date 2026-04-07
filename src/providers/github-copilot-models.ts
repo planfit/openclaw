@@ -11,9 +11,14 @@ const DEFAULT_MODEL_IDS = [
   "gpt-4.1",
   "gpt-4.1-mini",
   "gpt-4.1-nano",
+  "gpt-4.5",
+  "gpt-4.5-mini",
   "o1",
   "o1-mini",
+  "o1-preview",
   "o3-mini",
+  "claude-3-5-sonnet",
+  "claude-3-5-haiku",
 ] as const;
 
 export function getDefaultCopilotModelIds(): string[] {
