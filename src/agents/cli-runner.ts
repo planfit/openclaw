@@ -78,6 +78,7 @@ export async function runCliAgent(params: {
   const modelId = (params.model ?? "default").trim() || "default";
   const normalizedModel = normalizeCliModel(modelId, backend);
   const modelDisplay = `${params.provider}/${modelId}`;
+  const isClaudeCli = backendResolved.id === "claude-cli";
 
   const extraSystemPrompt = [
     params.extraSystemPrompt?.trim(),
@@ -108,7 +109,7 @@ export async function runCliAgent(params: {
     cwd: process.cwd(),
     moduleUrl: import.meta.url,
   });
-  const systemPrompt = buildSystemPrompt({
+  const fullSystemPrompt = buildSystemPrompt({
     workspaceDir,
     config: params.config,
     defaultThinkLevel: params.thinkLevel,
@@ -121,6 +122,13 @@ export async function runCliAgent(params: {
     modelDisplay,
     agentId: sessionAgentId,
   });
+
+  // For claude-cli: inject system prompt into user message instead of
+  // --append-system-prompt. The CLI arg triggers cache creation tokens that
+  // Anthropic bills as "extra usage" (upstream unresolved: openclaw/openclaw#63683).
+  // Injecting into stdin avoids cache creation and uses regular input tokens.
+  const systemPrompt = isClaudeCli ? undefined : fullSystemPrompt;
+  const cliSystemPromptPrefix = isClaudeCli ? fullSystemPrompt : undefined;
 
   const { sessionId: cliSessionIdToSend, isNew } = resolveSessionIdToSend({
     backend,
@@ -146,6 +154,11 @@ export async function runCliAgent(params: {
   let imagePaths: string[] | undefined;
   let cleanupImages: (() => Promise<void>) | undefined;
   let prompt = params.prompt;
+
+  // For claude-cli: prepend system prompt into user message
+  if (cliSystemPromptPrefix && (!useResume || isNew)) {
+    prompt = `<system-context>\n${cliSystemPromptPrefix}\n</system-context>\n\n${prompt}`;
+  }
 
   if (params.images && params.images.length > 0) {
     const imagePayload = await writeCliImages(params.images);
