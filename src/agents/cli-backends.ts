@@ -36,6 +36,9 @@ const CLAUDE_MODEL_ALIASES: Record<string, string> = {
 // (e.g. connecting to a different base URL, using Bedrock/Vertex instead of
 // direct API, or leaking OpenClaw-internal telemetry config).
 const CLAUDE_CLI_CLEAR_ENV = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_API_KEY_OLD",
+  "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_UNIX_SOCKET",
   "CLAUDE_CODE_ENTRYPOINT",
@@ -64,8 +67,29 @@ const CLAUDE_CLI_CLEAR_ENV = [
   "OTEL_TRACES_EXPORTER",
 ];
 
+function resolveClaudeCommand(): string {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  // Check common install locations for claude binary
+  const candidates = [
+    path.join(process.env.HOME ?? "", ".local/bin/claude"),
+    "/usr/local/bin/claude",
+    "/opt/homebrew/bin/claude",
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return "claude";
+}
+
 const DEFAULT_CLAUDE_BACKEND: CliBackendConfig = {
-  command: "claude",
+  command: resolveClaudeCommand(),
   args: [
     "-p",
     "--output-format",
