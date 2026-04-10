@@ -753,7 +753,7 @@ export function applyAuthProfileConfig(
   params: {
     profileId: string;
     provider: string;
-    mode: "api_key" | "oauth" | "token";
+    mode: "api_key" | "oauth" | "token" | "cli";
     email?: string;
     preferProfileFirst?: boolean;
   },

@@ -49,8 +49,8 @@ const AUTH_CHOICE_GROUP_DEFS: {
   {
     value: "anthropic",
     label: "Anthropic",
-    hint: "setup-token + API key",
-    choices: ["token", "apiKey"],
+    hint: "Claude CLI + setup-token + API key",
+    choices: ["claude-cli", "token", "apiKey"],
   },
   {
     value: "minimax",
@@ -156,6 +156,12 @@ export function buildAuthChoiceOptions(params: {
 }): AuthChoiceOption[] {
   void params.store;
   const options: AuthChoiceOption[] = [];
+
+  options.push({
+    value: "claude-cli",
+    label: "Anthropic Claude CLI",
+    hint: "Reuse a local Claude CLI login on this host",
+  });
 
   options.push({
     value: "token",

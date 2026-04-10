@@ -8,9 +8,66 @@ import {
 import { buildTokenProfileId, validateAnthropicSetupToken } from "./auth-token.js";
 import { applyAuthProfileConfig, setAnthropicApiKey } from "./onboard-auth.js";
 
+async function isClaudeCliAvailable(): Promise<boolean> {
+  try {
+    const { runExec } = await import("../process/exec.js");
+    const { stdout } = await runExec("claude", ["--version"]);
+    return Boolean(stdout.trim());
+  } catch {
+    return false;
+  }
+}
+
 export async function applyAuthChoiceAnthropic(
   params: ApplyAuthChoiceParams,
 ): Promise<ApplyAuthChoiceResult | null> {
+  if (params.authChoice === "claude-cli") {
+    let nextConfig = params.config;
+    const available = await isClaudeCliAvailable();
+    if (!available) {
+      await params.prompter.note(
+        [
+          "Claude CLI not found on PATH.",
+          "Install it with: npm install -g @anthropic-ai/claude-code",
+          "Then run: claude auth login",
+        ].join("\n"),
+        "Claude CLI not found",
+      );
+      return null;
+    }
+
+    await params.prompter.note(
+      [
+        "Using the local Claude CLI login.",
+        "Make sure you have already run `claude auth login`.",
+      ].join("\n"),
+      "Anthropic Claude CLI",
+    );
+
+    nextConfig = applyAuthProfileConfig(nextConfig, {
+      profileId: "anthropic:claude-cli",
+      provider: "anthropic",
+      mode: "cli",
+    });
+    // Set default model to claude-cli provider
+    nextConfig = {
+      ...nextConfig,
+      agents: {
+        ...nextConfig.agents,
+        defaults: {
+          ...nextConfig.agents?.defaults,
+          model: {
+            ...(typeof nextConfig.agents?.defaults?.model === "object"
+              ? nextConfig.agents.defaults.model
+              : undefined),
+            primary: "claude-cli/claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+    return { config: nextConfig };
+  }
+
   if (
     params.authChoice === "setup-token" ||
     params.authChoice === "oauth" ||
