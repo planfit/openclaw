@@ -147,9 +147,10 @@ async function ensureAuthJsonForDiscovery(agentDir: string): Promise<void> {
         }
         if (cred.type === "api_key" && cred.key?.trim()) {
           credentials[provider] = { type: "api_key", key: cred.key.trim() };
-        } else if (cred.type === "token" && cred.token?.trim()) {
-          credentials[provider] = { type: "api_key", key: cred.token.trim() };
         }
+        // Note: setup-tokens (type: "token") are NOT added here.
+        // They are bearer tokens for subscription auth, not API keys,
+        // and writing them as api_key causes auth failures downstream.
       }
     }
   } catch {
