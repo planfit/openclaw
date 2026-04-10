@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { type OpenClawConfig, loadConfig } from "../config/config.js";
 import { resolveOpenClawAgentDir } from "./agent-paths.js";
 import { ensureOpenClawModelsJson } from "./models-config.js";
@@ -68,9 +70,11 @@ export async function loadModelCatalog(params?: {
       // will keep failing until restart).
       const piSdk = await importPiSdk();
       const agentDir = resolveOpenClawAgentDir();
-      const { join } = await import("node:path");
-      const authStorage = new piSdk.AuthStorage(join(agentDir, "auth.json"));
-      const registry = new piSdk.ModelRegistry(authStorage, join(agentDir, "models.json")) as
+      // Ensure auth.json includes credentials from auth-profiles and env vars
+      // so pi-sdk can discover models for authenticated providers.
+      await ensureAuthJsonForDiscovery(agentDir);
+      const authStorage = new piSdk.AuthStorage(path.join(agentDir, "auth.json"));
+      const registry = new piSdk.ModelRegistry(authStorage, path.join(agentDir, "models.json")) as
         | {
             getAll: () => Array<DiscoveredModel>;
           }
@@ -116,6 +120,84 @@ export async function loadModelCatalog(params?: {
   })();
 
   return modelCatalogPromise;
+}
+
+/**
+ * Ensure auth.json contains credentials from auth-profiles.json and env vars.
+ * pi-sdk's ModelRegistry hides providers when auth.json lacks a matching entry,
+ * so we mirror credentials here so model discovery sees all authenticated providers.
+ */
+async function ensureAuthJsonForDiscovery(agentDir: string): Promise<void> {
+  const authJsonPath = path.join(agentDir, "auth.json");
+  const credentials: Record<string, { type: string; key?: string }> = {};
+
+  // 1. Read from auth-profiles.json
+  try {
+    const profilesPath = path.join(agentDir, "auth-profiles.json");
+    if (fs.existsSync(profilesPath)) {
+      const raw = JSON.parse(fs.readFileSync(profilesPath, "utf8")) as Record<string, unknown>;
+      const profiles = (raw.profiles ?? raw) as Record<
+        string,
+        { provider?: string; type?: string; key?: string; token?: string }
+      >;
+      for (const cred of Object.values(profiles)) {
+        const provider = cred.provider?.trim();
+        if (!provider || credentials[provider]) {
+          continue;
+        }
+        if (cred.type === "api_key" && cred.key?.trim()) {
+          credentials[provider] = { type: "api_key", key: cred.key.trim() };
+        } else if (cred.type === "token" && cred.token?.trim()) {
+          credentials[provider] = { type: "api_key", key: cred.token.trim() };
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // 2. Fill from env vars for known providers
+  const envProviders: [string, string[]][] = [
+    ["anthropic", ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]],
+    ["openai", ["OPENAI_API_KEY"]],
+    ["google", ["GEMINI_API_KEY", "GOOGLE_API_KEY"]],
+    ["xai", ["XAI_API_KEY"]],
+    ["openrouter", ["OPENROUTER_API_KEY"]],
+  ];
+  for (const [provider, envVars] of envProviders) {
+    if (credentials[provider]) {
+      continue;
+    }
+    for (const envVar of envVars) {
+      const value = process.env[envVar]?.trim();
+      if (value) {
+        credentials[provider] = { type: "api_key", key: value };
+        break;
+      }
+    }
+  }
+
+  if (Object.keys(credentials).length === 0) {
+    return;
+  }
+
+  // 3. Write/merge auth.json
+  let existing: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(authJsonPath)) {
+      existing = JSON.parse(fs.readFileSync(authJsonPath, "utf8")) as Record<string, unknown>;
+    }
+  } catch {
+    // ignore
+  }
+
+  const merged = { ...existing, ...credentials };
+  const next = JSON.stringify(merged, null, 2) + "\n";
+  const prev = fs.existsSync(authJsonPath) ? fs.readFileSync(authJsonPath, "utf8") : "";
+  if (next !== prev) {
+    fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(authJsonPath, next, { mode: 0o600 });
+  }
 }
 
 /**
