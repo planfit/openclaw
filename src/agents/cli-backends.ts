@@ -29,21 +29,16 @@ const CLAUDE_MODEL_ALIASES: Record<string, string> = {
   "claude-haiku-3-5": "haiku",
 };
 
+// Environment variables to clear when spawning Claude CLI subprocess.
+// Auth-related vars (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, etc.) are
+// intentionally NOT cleared — the CLI needs them or its own stored credentials
+// to authenticate. We only clear vars that could cause the CLI to misbehave
+// (e.g. connecting to a different base URL, using Bedrock/Vertex instead of
+// direct API, or leaking OpenClaw-internal telemetry config).
 const CLAUDE_CLI_CLEAR_ENV = [
-  // NOTE: ANTHROPIC_API_KEY is intentionally NOT cleared here.
-  // The Claude CLI uses it for authentication, and clearing it causes
-  // "out of extra usage" errors when the CLI falls back to subscription auth.
-  "ANTHROPIC_API_KEY_OLD",
-  "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_UNIX_SOCKET",
-  "CLAUDE_CONFIG_DIR",
-  "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
   "CLAUDE_CODE_ENTRYPOINT",
-  "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
-  "CLAUDE_CODE_OAUTH_SCOPES",
-  "CLAUDE_CODE_OAUTH_TOKEN",
-  "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
   "CLAUDE_CODE_PLUGIN_CACHE_DIR",
   "CLAUDE_CODE_PLUGIN_SEED_DIR",
   "CLAUDE_CODE_REMOTE",
