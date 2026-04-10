@@ -67,10 +67,10 @@ const CLAUDE_CLI_CLEAR_ENV = [
   "OTEL_TRACES_EXPORTER",
 ];
 
+import fs from "node:fs";
+import path from "node:path";
+
 function resolveClaudeCommand(): string {
-  const fs = require("node:fs") as typeof import("node:fs");
-  const path = require("node:path") as typeof import("node:path");
-  // Check common install locations for claude binary
   const candidates = [
     path.join(process.env.HOME ?? "", ".local/bin/claude"),
     "/usr/local/bin/claude",
