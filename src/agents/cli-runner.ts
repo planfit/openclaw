@@ -93,7 +93,9 @@ export async function runCliAgent(params: {
 
   let systemPrompt: string | undefined;
   if (isClaudeCli) {
-    // Only pass a minimal system prompt for claude-cli
+    // Skip the full OpenClaw buildSystemPrompt() for claude-cli — the CLI has its
+    // own ~42K token system prompt. Only pass the short extra context (group intro,
+    // inbound meta, owner numbers) so the CLI knows who it's talking to.
     systemPrompt = extraSystemPrompt ?? undefined;
   } else {
     const sessionLabel = params.sessionKey ?? params.sessionId;
