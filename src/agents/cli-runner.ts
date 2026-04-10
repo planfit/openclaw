@@ -79,61 +79,48 @@ export async function runCliAgent(params: {
   const normalizedModel = normalizeCliModel(modelId, backend);
   const modelDisplay = `${params.provider}/${modelId}`;
 
-  // For claude-cli backend, skip the full OpenClaw system prompt.
-  // The Claude CLI has its own system prompt (~42K tokens), and appending
-  // OpenClaw's full prompt (~36KB) causes massive cache creation token usage
-  // that triggers "out of extra usage" billing errors.
-  const isClaudeCli = backendResolved.id === "claude-cli";
+  const extraSystemPrompt = [
+    params.extraSystemPrompt?.trim(),
+    "Tools are disabled in this session. Do not call tools.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  const extraSystemPrompt = isClaudeCli
-    ? params.extraSystemPrompt?.trim() || null
-    : [params.extraSystemPrompt?.trim(), "Tools are disabled in this session. Do not call tools."]
-        .filter(Boolean)
-        .join("\n");
-
-  let systemPrompt: string | undefined;
-  if (isClaudeCli) {
-    // Skip the full OpenClaw buildSystemPrompt() for claude-cli — the CLI has its
-    // own ~42K token system prompt. Only pass the short extra context (group intro,
-    // inbound meta, owner numbers) so the CLI knows who it's talking to.
-    systemPrompt = extraSystemPrompt ?? undefined;
-  } else {
-    const sessionLabel = params.sessionKey ?? params.sessionId;
-    const { contextFiles } = await resolveBootstrapContextForRun({
-      workspaceDir,
-      config: params.config,
-      sessionKey: params.sessionKey,
-      sessionId: params.sessionId,
-      warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
-    });
-    const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
-      sessionKey: params.sessionKey,
-      config: params.config,
-    });
-    const heartbeatPrompt =
-      sessionAgentId === defaultAgentId
-        ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
-        : undefined;
-    const docsPath = await resolveOpenClawDocsPath({
-      workspaceDir,
-      argv1: process.argv[1],
-      cwd: process.cwd(),
-      moduleUrl: import.meta.url,
-    });
-    systemPrompt = buildSystemPrompt({
-      workspaceDir,
-      config: params.config,
-      defaultThinkLevel: params.thinkLevel,
-      extraSystemPrompt: extraSystemPrompt ?? undefined,
-      ownerNumbers: params.ownerNumbers,
-      heartbeatPrompt,
-      docsPath: docsPath ?? undefined,
-      tools: [],
-      contextFiles,
-      modelDisplay,
-      agentId: sessionAgentId,
-    });
-  }
+  const sessionLabel = params.sessionKey ?? params.sessionId;
+  const { contextFiles } = await resolveBootstrapContextForRun({
+    workspaceDir,
+    config: params.config,
+    sessionKey: params.sessionKey,
+    sessionId: params.sessionId,
+    warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
+  });
+  const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
+    sessionKey: params.sessionKey,
+    config: params.config,
+  });
+  const heartbeatPrompt =
+    sessionAgentId === defaultAgentId
+      ? resolveHeartbeatPrompt(params.config?.agents?.defaults?.heartbeat?.prompt)
+      : undefined;
+  const docsPath = await resolveOpenClawDocsPath({
+    workspaceDir,
+    argv1: process.argv[1],
+    cwd: process.cwd(),
+    moduleUrl: import.meta.url,
+  });
+  const systemPrompt = buildSystemPrompt({
+    workspaceDir,
+    config: params.config,
+    defaultThinkLevel: params.thinkLevel,
+    extraSystemPrompt,
+    ownerNumbers: params.ownerNumbers,
+    heartbeatPrompt,
+    docsPath: docsPath ?? undefined,
+    tools: [],
+    contextFiles,
+    modelDisplay,
+    agentId: sessionAgentId,
+  });
 
   const { sessionId: cliSessionIdToSend, isNew } = resolveSessionIdToSend({
     backend,
@@ -159,6 +146,7 @@ export async function runCliAgent(params: {
   let imagePaths: string[] | undefined;
   let cleanupImages: (() => Promise<void>) | undefined;
   let prompt = params.prompt;
+
   if (params.images && params.images.length > 0) {
     const imagePayload = await writeCliImages(params.images);
     imagePaths = imagePayload.paths;

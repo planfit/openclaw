@@ -1,5 +1,6 @@
 import type { ApplyAuthChoiceParams, ApplyAuthChoiceResult } from "./auth-choice.apply.js";
 import { upsertAuthProfile } from "../agents/auth-profiles.js";
+import { readClaudeCliCredentials } from "../agents/cli-credentials.js";
 import {
   formatApiKeyPreview,
   normalizeApiKeyInput,
@@ -36,11 +37,52 @@ export async function applyAuthChoiceAnthropic(
       return null;
     }
 
+    // Read OAuth credentials from Claude CLI (~/.claude/.credentials.json or keychain)
+    const cliCred = readClaudeCliCredentials();
+    if (!cliCred) {
+      await params.prompter.note(
+        [
+          "Claude CLI is installed but not authenticated.",
+          "Run `claude auth login` first, then retry.",
+        ].join("\n"),
+        "Claude CLI not authenticated",
+      );
+      return null;
+    }
+
+    // Store the CLI credential in OpenClaw's auth-profiles
+    if (cliCred.type === "oauth") {
+      upsertAuthProfile({
+        profileId: "anthropic:claude-cli",
+        agentDir: params.agentDir,
+        credential: {
+          type: "oauth",
+          provider: "anthropic",
+          access: cliCred.access,
+          refresh: cliCred.refresh,
+          expires: cliCred.expires,
+        },
+      });
+    } else {
+      upsertAuthProfile({
+        profileId: "anthropic:claude-cli",
+        agentDir: params.agentDir,
+        credential: {
+          type: "token",
+          provider: "anthropic",
+          token: cliCred.token,
+        },
+      });
+    }
+
     await params.prompter.note(
       [
-        "Using the local Claude CLI login.",
-        "Make sure you have already run `claude auth login`.",
-      ].join("\n"),
+        "Claude CLI credentials imported successfully.",
+        `Auth type: ${cliCred.type}`,
+        cliCred.type === "oauth" ? `Expires: ${new Date(cliCred.expires).toLocaleString()}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
       "Anthropic Claude CLI",
     );
 
