@@ -362,6 +362,8 @@ export function parseCliJsonl(raw: string, backend: CliBackendConfig): CliOutput
   let sessionId: string | undefined;
   let usage: CliUsage | undefined;
   const texts: string[] = [];
+  // Track whether we see Claude Code stream-json format (type: "assistant"/"result")
+  let isStreamJson = false;
   for (const line of lines) {
     let parsed: unknown;
     try {
@@ -372,20 +374,69 @@ export function parseCliJsonl(raw: string, backend: CliBackendConfig): CliOutput
     if (!isRecord(parsed)) {
       continue;
     }
-    if (!sessionId) {
-      sessionId = pickSessionId(parsed, backend);
+
+    const lineType = typeof parsed.type === "string" ? parsed.type : "";
+
+    // --- Claude Code stream-json format ---
+    if (lineType === "assistant") {
+      isStreamJson = true;
+      // Extract text from message.content array
+      const message = isRecord(parsed.message) ? parsed.message : null;
+      if (message) {
+        const content = Array.isArray(message.content) ? message.content : null;
+        if (content) {
+          for (const block of content) {
+            if (isRecord(block) && block.type === "text" && typeof block.text === "string") {
+              texts.push(block.text);
+            }
+          }
+        }
+      }
+      continue;
     }
-    if (!sessionId && typeof parsed.thread_id === "string") {
-      sessionId = parsed.thread_id.trim();
+
+    if (lineType === "result") {
+      isStreamJson = true;
+      // Extract session_id and usage from result object
+      if (!sessionId) {
+        sessionId = pickSessionId(parsed, backend);
+      }
+      if (isRecord(parsed.usage)) {
+        usage = toUsage(parsed.usage) ?? usage;
+      }
+      // Also check nested result for session_id
+      if (!sessionId && typeof parsed.session_id === "string" && parsed.session_id.trim()) {
+        sessionId = parsed.session_id.trim();
+      }
+      continue;
     }
-    if (isRecord(parsed.usage)) {
-      usage = toUsage(parsed.usage) ?? usage;
+
+    if (lineType === "system" || lineType === "error") {
+      isStreamJson = true;
+      // system/error messages: extract error text if present
+      if (lineType === "error" && typeof parsed.error === "string") {
+        texts.push(`[error] ${parsed.error}`);
+      }
+      continue;
     }
-    const item = isRecord(parsed.item) ? parsed.item : null;
-    if (item && typeof item.text === "string") {
-      const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
-      if (!type || type.includes("message")) {
-        texts.push(item.text);
+
+    // --- Codex CLI / legacy JSONL format ---
+    if (!isStreamJson) {
+      if (!sessionId) {
+        sessionId = pickSessionId(parsed, backend);
+      }
+      if (!sessionId && typeof parsed.thread_id === "string") {
+        sessionId = parsed.thread_id.trim();
+      }
+      if (isRecord(parsed.usage)) {
+        usage = toUsage(parsed.usage) ?? usage;
+      }
+      const item = isRecord(parsed.item) ? parsed.item : null;
+      if (item && typeof item.text === "string") {
+        const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
+        if (!type || type.includes("message")) {
+          texts.push(item.text);
+        }
       }
     }
   }

@@ -10,7 +10,6 @@ import { createSubsystemLogger } from "../logging/subsystem.js";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { resolveSessionAgentIds } from "./agent-scope.js";
 import { makeBootstrapWarn, resolveBootstrapContextForRun } from "./bootstrap-files.js";
-import { runSDKAgent } from "./claude-sdk-integration.js";
 import { resolveCliBackendConfig } from "./cli-backends.js";
 import {
   appendImagePathsToPrompt,
@@ -181,26 +180,7 @@ export async function runCliAgent(params: {
 
   try {
     const output = await enqueueCliRun(queueKey, async (): Promise<CliOutput> => {
-      // --- SDK path: claude-cli provider uses Claude Agent SDK directly ---
-      if (backendResolved.id === "claude-cli") {
-        return runSDKAgentBridge({
-          prompt,
-          cwd: workspaceDir,
-          model: normalizedModel,
-          extraSystemPrompt: params.extraSystemPrompt?.trim(),
-          sessionId: cliSessionIdToSend,
-          isResume: useResume,
-          env: (() => {
-            const next: Record<string, string | undefined> = { ...process.env, ...backend.env };
-            for (const key of backend.clearEnv ?? []) {
-              delete next[key];
-            }
-            return next;
-          })(),
-        });
-      }
-
-      // --- Subprocess path: all other CLI backends (codex-cli, etc.) ---
+      // --- Subprocess path: all CLI backends (claude-cli, codex-cli, etc.) ---
       log.info(
         `cli exec: provider=${params.provider} model=${normalizedModel} promptChars=${params.prompt.length}`,
       );
@@ -343,42 +323,6 @@ export async function runCliAgent(params: {
       await cleanupImages();
     }
   }
-}
-
-async function runSDKAgentBridge(params: {
-  prompt: string;
-  cwd: string;
-  model: string;
-  extraSystemPrompt?: string;
-  sessionId?: string;
-  isResume: boolean;
-  env: Record<string, string | undefined>;
-}): Promise<CliOutput> {
-  const sdkResult = await runSDKAgent({
-    prompt: params.prompt,
-    cwd: params.cwd,
-    model: params.model,
-    systemPromptAppend: params.extraSystemPrompt,
-    env: params.env,
-    ...(params.isResume && params.sessionId
-      ? { resume: params.sessionId }
-      : params.sessionId
-        ? { sessionId: params.sessionId }
-        : {}),
-  });
-
-  return {
-    text: sdkResult.text,
-    sessionId: sdkResult.sessionId,
-    usage: sdkResult.usage
-      ? {
-          input: sdkResult.usage.input,
-          output: sdkResult.usage.output,
-          cacheRead: sdkResult.usage.cacheRead,
-          cacheWrite: sdkResult.usage.cacheWrite,
-        }
-      : undefined,
-  };
 }
 
 export async function runClaudeCliAgent(params: {
