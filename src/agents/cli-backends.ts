@@ -103,7 +103,6 @@ const DEFAULT_CLAUDE_BACKEND: CliBackendConfig = {
   systemPromptArg: "--append-system-prompt",
   systemPromptMode: "append",
   systemPromptWhen: "first",
-  env: { CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST: "1" },
   clearEnv: [...CLAUDE_CLI_CLEAR_ENV],
   serialize: true,
 };
