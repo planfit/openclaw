@@ -30,7 +30,9 @@ const CLAUDE_MODEL_ALIASES: Record<string, string> = {
 };
 
 const CLAUDE_CLI_CLEAR_ENV = [
-  "ANTHROPIC_API_KEY",
+  // NOTE: ANTHROPIC_API_KEY is intentionally NOT cleared here.
+  // The Claude CLI uses it for authentication, and clearing it causes
+  // "out of extra usage" errors when the CLI falls back to subscription auth.
   "ANTHROPIC_API_KEY_OLD",
   "ANTHROPIC_AUTH_TOKEN",
   "ANTHROPIC_BASE_URL",
