@@ -91,6 +91,23 @@ export type CliBackendConfig = {
   imageMode?: "repeat" | "list";
   /** Serialize runs for this CLI. */
   serialize?: boolean;
+  /** Reliability / watchdog configuration. */
+  reliability?: {
+    watchdog?: {
+      fresh?: {
+        noOutputTimeoutMs?: number;
+        noOutputTimeoutRatio?: number;
+        minMs?: number;
+        maxMs?: number;
+      };
+      resume?: {
+        noOutputTimeoutMs?: number;
+        noOutputTimeoutRatio?: number;
+        minMs?: number;
+        maxMs?: number;
+      };
+    };
+  };
 };
 
 export type AgentDefaultsConfig = {

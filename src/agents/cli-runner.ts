@@ -26,6 +26,7 @@ import {
   resolveSystemPromptUsage,
   writeCliImages,
 } from "./cli-runner/helpers.js";
+import { resolveCliNoOutputTimeoutMs } from "./cli-runner/reliability.js";
 import { resolveOpenClawDocsPath } from "./docs-path.js";
 import { FailoverError, resolveFailoverStatus } from "./failover-error.js";
 import { classifyFailoverReason, isFailoverErrorMessage } from "./pi-embedded-helpers.js";
@@ -243,7 +244,13 @@ export async function runCliAgent(params: {
         return next;
       })();
 
-      // empty — debug dump removed
+      // Apply watchdog timeout: kill CLI if no output for too long.
+      // Prevents infinite hangs when CLI gets stuck on MCP reconnection etc.
+      const watchdogTimeoutMs = resolveCliNoOutputTimeoutMs({
+        backend,
+        timeoutMs: params.timeoutMs,
+        useResume,
+      });
 
       // Cleanup suspended processes that have accumulated (regardless of sessionId)
       await cleanupSuspendedCliProcesses(backend);
@@ -252,7 +259,7 @@ export async function runCliAgent(params: {
       }
 
       const result = await runCommandWithTimeout([backend.command, ...args], {
-        timeoutMs: params.timeoutMs,
+        timeoutMs: watchdogTimeoutMs,
         cwd: workspaceDir,
         env,
         input: stdinPayload,
