@@ -2,5 +2,10 @@
   "id": "amazon-bedrock-mantle",
   "providerId": "amazon-bedrock-mantle",
   "enabledByDefault": true,
-  "defaultEnabled": true
+  "defaultEnabled": true,
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
 }

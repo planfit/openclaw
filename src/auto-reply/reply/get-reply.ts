@@ -109,6 +109,7 @@ export async function getReplyFromConfig(
     onReplyStart: opts?.onReplyStart,
     onCleanup: opts?.onTypingCleanup,
     typingIntervalSeconds,
+    typingTtlMs: 10 * 60_000,
     silentToken: SILENT_REPLY_TOKEN,
     log: defaultRuntime.log,
   });
